@@ -1,4 +1,4 @@
-create temp table demographics as
+ create temp table demographics as
 WITH dx_cancer AS
 (
     SELECT
@@ -7,38 +7,6 @@ WITH dx_cancer AS
             WHEN REGEXP_CONTAINS(diagnosisstring, r'(?i)(hemato)|(leukemia)|(lymphoma)|(myeloma)') THEN 1
             ELSE 0
           END) AS hemato
-        , MAX(CASE
-            WHEN REGEXP_CONTAINS(diagnosisstring, r'(?i)(GU)|(renal)|(kidney)|(genetal)') THEN 1
-            ELSE 0
-          END) AS renal_GU
-        , MAX(CASE
-            WHEN REGEXP_CONTAINS(diagnosisstring, r'(?i)(thymoma)|(breast)|(mediastinal)') THEN 1
-            ELSE 0
-          END) AS chest_breast
-        , MAX(CASE
-            WHEN REGEXP_CONTAINS(diagnosisstring, r'(?i)(pulmonary)|(lung)') THEN 1
-            ELSE 0
-          END) AS lung_pulmonary
-        , MAX(CASE
-            WHEN REGEXP_CONTAINS(diagnosisstring, r'(?i)(skin)|(muscle)|(skeletal)') THEN 1
-            ELSE 0
-          END) AS mss_skin
-        , MAX(CASE
-            WHEN REGEXP_CONTAINS(diagnosisstring, r'(?i)(head)|(neck)') THEN 1
-            ELSE 0
-          END) AS head_neck
-        , MAX(CASE
-            WHEN REGEXP_CONTAINS(diagnosisstring, r'(?i)(GI)|(colon)|(intestinal)|(gastric)|(liver)|(pancreatic)|(gallbladder)|(esophageal)|(anal)') THEN 1
-            ELSE 0
-          END) AS GI
-        , MAX(CASE
-            WHEN REGEXP_CONTAINS(diagnosisstring, r'(?i)(brain)|(spine)|(spinal)|(CNS)') THEN 1
-            ELSE 0
-          END) AS CNS
-        , MAX(CASE
-            WHEN REGEXP_CONTAINS(diagnosisstring, r'(?i)(endocrine)') THEN 1
-            ELSE 0
-          END) AS endocrine
     FROM `physionet-data.eicu_crd.diagnosis`
     WHERE REGEXP_CONTAINS(diagnosisstring, r'(?i)((^|[|])onc)|(renal|electrolyte imbalance|hyponatremia|due to elevated ADH levels|from tumor other than lung)'||
                                             'renal|electrolyte imbalance|hypocalcemia|due to tumor lysis'||
@@ -268,38 +236,6 @@ WITH dx_cancer AS
                 WHEN REGEXP_CONTAINS(pasthistorypath, r'(?i)(hemato)|(leukemia)|(lymphoma)|(myeloma)') THEN 1
             ELSE 0
           END) AS hemato
-        , MAX(CASE
-            WHEN REGEXP_CONTAINS(pasthistorypath, r'(?i)(GU)|(renal)|(kidney)|(genetal)') THEN 1
-            ELSE 0
-          END) AS renal_GU
-        , MAX(CASE
-            WHEN REGEXP_CONTAINS(pasthistorypath, r'(?i)(thymoma)|(breast)|(mediastinal)') THEN 1
-            ELSE 0
-          END) AS chest_breast
-        , MAX(CASE
-            WHEN REGEXP_CONTAINS(pasthistorypath, r'(?i)(pulmonary)|(lung)') THEN 1
-            ELSE 0
-          END) AS lung_pulmonary
-        , MAX(CASE
-            WHEN REGEXP_CONTAINS(pasthistorypath, r'(?i)(skin)|(muscle)|(skeletal)') THEN 1
-            ELSE 0
-          END) AS mss_skin
-        , MAX(CASE
-            WHEN REGEXP_CONTAINS(pasthistorypath, r'(?i)(head)|(neck)') THEN 1
-            ELSE 0
-          END) AS head_neck
-        , MAX(CASE
-            WHEN REGEXP_CONTAINS(pasthistorypath, r'(?i)(GI)|(colon)|(intestinal)|(gastric)|(liver)|(pancreatic)|(gallbladder)|(esophageal)|(anal)') THEN 1
-            ELSE 0
-          END) AS GI
-        , MAX(CASE
-            WHEN REGEXP_CONTAINS(pasthistorypath, r'(?i)(brain)|(spine)|(spinal)|(CNS)') THEN 1
-            ELSE 0
-          END) AS CNS
-        , MAX(CASE
-            WHEN REGEXP_CONTAINS(pasthistorypath, r'(?i)(endocrine)') THEN 1
-            ELSE 0
-          END) AS endocrine
     FROM `physionet-data.eicu_crd.pasthistory`
     WHERE REGEXP_CONTAINS(pasthistorypath, r'(?i)' ||
                                             'notes/Progress Notes/Past History/Organ Systems/Hematology/Oncology (R)/Cancer/Cancer-Primary Site/bile duct' ||
@@ -651,6 +587,18 @@ SELECT
         WHEN apache.metastaticcancer = 1 THEN 1
         ELSE 0
       END AS cancer_non_hemato
+     ,CASE
+        WHEN dx.hemato = 1 THEN 1
+        WHEN icd.hemato = 1 THEN 1
+        WHEN past.hemato = 1 THEN 1
+        WHEN apache.leukemia = 1 THEN 1
+        WHEN apache.lymphoma = 1 THEN 1
+        WHEN dx.hemato = 0 THEN 1
+        WHEN icd.hemato = 0 THEN 1
+        WHEN past.hemato = 0 THEN 1
+        WHEN apache.metastaticcancer = 1 THEN 1
+        ELSE 0
+        END AS has_cancer
     ,CASE
         WHEN dx_sepsis.sepsis = 1 THEN 1
         WHEN icd_sepsis.sepsis = 1 THEN 1
@@ -679,46 +627,6 @@ SELECT
         WHEN yeast.yeast = 1 THEN 1
         ELSE 0
     END AS yeast
-    ,CASE
-        WHEN dx.renal_GU = 1 THEN 1
-        WHEN past.renal_GU = 1 THEN 1
-        ELSE 0
-    END AS renal_GU
-    ,CASE
-        WHEN dx.chest_breast = 1 THEN 1
-        WHEN past.chest_breast = 1 THEN 1
-        ELSE 0
-    END AS chest_breast
-     ,CASE
-        WHEN dx.lung_pulmonary = 1 THEN 1
-        WHEN past.lung_pulmonary = 1 THEN 1
-        ELSE 0
-    END AS lung_pulmonary
-    ,CASE
-        WHEN dx.mss_skin = 1 THEN 1
-        WHEN past.mss_skin = 1 THEN 1
-        ELSE 0
-    END AS mss_skin
-    ,CASE
-        WHEN dx.head_neck = 1 THEN 1
-        WHEN past.head_neck = 1 THEN 1
-        ELSE 0
-    END AS head_neck
-    ,CASE
-        WHEN dx.GI = 1 THEN 1
-        WHEN past.GI = 1 THEN 1
-        ELSE 0
-    END AS GI
-    ,CASE
-        WHEN dx.CNS = 1 THEN 1
-        WHEN past.CNS = 1 THEN 1
-        ELSE 0
-    END AS CNS
-    ,CASE
-        WHEN dx.endocrine = 1 THEN 1
-        WHEN past.endocrine = 1 THEN 1
-        ELSE 0
-    END AS endocrine
 
 FROM icustays icu
 JOIN `physionet-data.eicu_crd.apachepatientresult` aps

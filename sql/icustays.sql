@@ -7,9 +7,15 @@ with pt as
             when pt.age = '' then null
             when REGEXP_CONTAINS(age, '>') then cast(REPLACE(age, '>','') as int64) + 1
             else cast(age as INT64)
-          end as age_num
+          END as age_num
+        , CASE
+            WHEN REGEXP_CONTAINS(pt.gender, r'(?i)(male)') THEN 1 ELSE 0
+          END AS male
+        , CASE
+            WHEN REGEXP_CONTAINS(pt.gender, r'(?i)(female)') THEN 1 ELSE 0
+          END AS female
     from `physionet-data.eicu_crd.patient` pt
-    where lower(unittype) like '%icu%' -- only include ICUs HAMZA:No need, all eicu patients are icu patientsw
+    where lower(unittype) like '%icu%'
 )
 select
       pt.*
@@ -19,13 +25,7 @@ select
         ORDER BY
               hospitaldischargeyear
             , age
---             , patienthealthsystemstayid -- this is temporarilly random but deterministic
---             , hospitaladmitoffset
     ) as HOSP_NUM
---     , ROW_NUMBER() over
---     (
---         PARTITION BY patienthealthsystemstayid
---         ORDER BY hospitaladmitoffset
---     ) as ICUSTAY_NUM
+
 from pt
 ;
