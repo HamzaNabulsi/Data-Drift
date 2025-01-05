@@ -9,11 +9,11 @@ WITH pt AS
             else cast(age as INT64)
           END as age_num
         , CASE
-            WHEN REGEXP_CONTAINS(pt.gender, r'(?i)(male)') THEN 1 ELSE 0
-          END AS male
-        , CASE
             WHEN REGEXP_CONTAINS(pt.gender, r'(?i)(female)') THEN 1 ELSE 0
           END AS female
+        , CASE
+            WHEN REGEXP_CONTAINS(pt.gender, r'(?i)(unknown)') THEN 1 ELSE 0
+          END AS unkown
         , ROW_NUMBER() over
          (
         PARTITION BY uniquepid
@@ -24,23 +24,8 @@ WITH pt AS
     from `lcp-consortium.eicu_crd_ii_v0_1_0.patient` pt
 )
 
-, hospital as (
-    SELECT
-         hospitalid
-        ,MAX(teachingstatus) as teachingstatus
-        ,STRING_AGG(region) as region
-        ,STRING_AGG(numbedscategory) as n_bed
-    FROM `lcp-consortium.eicu_crd_ii_v0_1_0.hospital` AS hospital
-    GROUP BY hospital.hospitalid
-)
 select
       pt.*
-     ,hospital.teachingstatus
-     ,hospital.region
-     ,hospital.n_bed
 FROM pt
-LEFT JOIN hospital hospital
-    ON pt.hospitalid = hospital.hospitalid
-
-WHERE HOSP_NUM = 1
+-- WHERE HOSP_NUM = 1
 ;

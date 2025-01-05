@@ -19,16 +19,16 @@ WITH pivoted AS (
 )
 
 SELECT
-    vitals.*
+    apache_vars.*
     ,icu_los
     ,hosp_los
     ,daysonvent
     ,hosp_mortality
     ,icu_mortality
 
-FROM vitals
+FROM apache_vars
 LEFT JOIN pivoted
-    ON vitals.patientunitstayid = pivoted.patientunitstayid
+    ON apache_vars.patientunitstayid = pivoted.patientunitstayid
 WHERE hosp_mortality IS NOT NULL
-OR icu_mortality IS NOT NULL
+-- OR icu_mortality IS NOT NULL
 ;

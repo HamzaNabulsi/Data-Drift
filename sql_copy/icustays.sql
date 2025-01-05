@@ -14,6 +14,9 @@ WITH pt AS
         , CASE
             WHEN REGEXP_CONTAINS(pt.gender, r'(?i)(female)') THEN 1 ELSE 0
           END AS female
+        , CASE
+            WHEN REGEXP_CONTAINS(pt.gender, r'(?i)(unknown)') THEN 1 ELSE 0
+          END AS unkown
         , ROW_NUMBER() over
          (
         PARTITION BY uniquepid
@@ -24,25 +27,9 @@ WITH pt AS
     from `physionet-data.eicu_crd.patient` pt
 )
 
-, hospital as (
-    SELECT
-         hospitalid
-        ,MAX(teachingstatus) as teachingstatus
-        ,STRING_AGG(region) as region
-        ,STRING_AGG(numbedscategory) as n_bed
-
-    FROM `physionet-data.eicu_crd.hospital` AS hospital
-    GROUP BY hospital.hospitalid
-)
 select
       pt.*
-     ,hospital.teachingstatus
-     ,hospital.region
-     ,hospital.n_bed
 
 FROM pt
-LEFT JOIN hospital hospital
-    ON pt.hospitalid = hospital.hospitalid
-
-WHERE HOSP_NUM = 1
+-- WHERE HOSP_NUM = 1
 ;
