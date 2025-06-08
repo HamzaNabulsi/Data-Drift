@@ -4,39 +4,55 @@ digraph {
 	node [fillcolor=white fixedsize=true fontname=Helvetica height=1 shape=box style=filled width=2.5]
 	edge [arrowhead=vee arrowsize=0.5 dir=forward minlen=1]
 	A0 [label="390,509 patients
-All Patients" fontname=Helvetica shape=box]
-	A1 [label="247,641 patients
+Admitted from 2014-2021" fontname=Helvetica shape=box]
+	A1 [label="229,170 patients
 " fontname=Helvetica shape=box]
-	A2 [label="45,900 patients
+	A2 [label="34,947 patients
 " fontname=Helvetica shape=box]
 	A3 [label="27,070 patients
 " fontname=Helvetica shape=box]
-	plot_dist3 [label="" color=transparent height=1.2 image="part3.svg" imagepos=bc imagescale=true shape=box width=3.0]
+	A4 [label="27,070 patients
+" fontname=Helvetica shape=box]
+	A5 [label="25,338 patients
+" fontname=Helvetica shape=box]
+	plot_dist5 [label="" color=transparent height=1.2 image="part5.svg" imagepos=bc imagescale=true shape=box width=3.0]
 	{
 		rank=same
-		A3
-		plot_dist3
+		A5
+		plot_dist5
 	}
-	E0 [label="142,868 patients excluded for
-Missing Hospital Mortality
- or Apache Score" fillcolor=floralwhite shape=box style=filled]
-	E1 [label="201,741 patients excluded for
-Patients without Sepsis" fillcolor=floralwhite shape=box style=filled]
-	E2 [label="18,830 patients excluded for
-First Admission Only" fillcolor=floralwhite shape=box style=filled]
+	E0 [label="161,339 patients excluded for
+Not First Admission" fillcolor=floralwhite shape=box style=filled]
+	E1 [label="194,223 patients excluded for
+Non-Septic Patients" fillcolor=floralwhite shape=box style=filled]
+	E2 [label="7,877 patients excluded for
+Missing APACHE Score" fillcolor=floralwhite shape=box style=filled]
+	E3 [label="0 patients excluded for
+Missing Mortality Data" fillcolor=floralwhite shape=box style=filled]
+	E4 [label="1,732 patients excluded for
+Predicted Hopsital
+Mortality =-1" fillcolor=floralwhite shape=box style=filled]
 	IA0 [label="" height=0 shape=point]
 	IA1 [label="" height=0 shape=point]
 	IA2 [label="" height=0 shape=point]
 	IA3 [label="" height=0 shape=point]
+	IA4 [label="" height=0 shape=point]
+	IA5 [label="" height=0 shape=point]
 	A0 -> IA0 [arrowhead=none]
 	IA0 -> A1
 	A1 -> IA1 [arrowhead=none]
 	IA1 -> A2
 	A2 -> IA2 [arrowhead=none]
 	IA2 -> A3
+	A3 -> IA3 [arrowhead=none]
+	IA3 -> A4
+	A4 -> IA4 [arrowhead=none]
+	IA4 -> A5
 	IA0 -> E0 [constraint=false]
 	IA1 -> E1 [constraint=false]
 	IA2 -> E2 [constraint=false]
+	IA3 -> E3 [constraint=false]
+	IA4 -> E4 [constraint=false]
 	{
 		rank=same
 		IA0
@@ -51,6 +67,16 @@ First Admission Only" fillcolor=floralwhite shape=box style=filled]
 		rank=same
 		IA2
 		E2
+	}
+	{
+		rank=same
+		IA3
+		E3
+	}
+	{
+		rank=same
+		IA4
+		E4
 	}
 	plot_dist0 [label="" color=transparent height=1.2 image="part0.svg" imagepos=bc imagescale=true shape=box width=3.25]
 	A0 -> plot_dist0 [constraint=false style=invis]
@@ -72,6 +98,20 @@ First Admission Only" fillcolor=floralwhite shape=box style=filled]
 		rank=same
 		A2
 		plot_dist2
+	}
+	plot_dist3 [label="" color=transparent height=1.2 image="part3.svg" imagepos=bc imagescale=true shape=box width=3.25]
+	A3 -> plot_dist3 [constraint=false style=invis]
+	{
+		rank=same
+		A3
+		plot_dist3
+	}
+	plot_dist4 [label="" color=transparent height=1.2 image="part4.svg" imagepos=bc imagescale=true shape=box width=3.25]
+	A4 -> plot_dist4 [constraint=false style=invis]
+	{
+		rank=same
+		A4
+		plot_dist4
 	}
 	legend [label="" color=transparent height=1.2 image="legend.svg" imagepos=bl imagescale=true shape=box width=2.5]
 	E0 -> legend [style=invis]
