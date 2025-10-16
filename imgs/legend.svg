@@ -6,7 +6,7 @@
   <rdf:RDF xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:cc="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
    <cc:Work>
     <dc:type rdf:resource="http://purl.org/dc/dcmitype/StillImage"/>
-    <dc:date>2025-06-19T23:33:14.993152</dc:date>
+    <dc:date>2025-09-10T18:23:25.105269</dc:date>
     <dc:format>image/svg+xml</dc:format>
     <dc:creator>
      <cc:Agent>
@@ -1272,7 +1272,7 @@ L 42.670625 181.31875
 L 42.670625 175.71875 
 L 26.670625 175.71875 
 z
-" style="fill: url(#hb74b61f77e); stroke: #ffffff; stroke-linejoin: miter"/>
+" style="fill: url(#hea738c4198); stroke: #ffffff; stroke-linejoin: miter"/>
     </g>
     <g id="text_15">
      <!-- Missing -->
@@ -1290,7 +1290,7 @@ z
   </g>
  </g>
  <defs>
-  <pattern id="hb74b61f77e" patternUnits="userSpaceOnUse" x="0" y="0" width="72" height="72">
+  <pattern id="hea738c4198" patternUnits="userSpaceOnUse" x="0" y="0" width="72" height="72">
    <rect x="0" y="0" width="73" height="73" fill="#d3d3d3"/>
    <path d="M -36 36 
 L 36 -36 
