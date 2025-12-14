@@ -4,6 +4,10 @@ Generalizable across multiple ICU datasets
 """
 import pandas as pd
 import os
+import sys
+
+# Add parent directory to path to import config
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from config import get_active_config, ACTIVE_DATASET
 
 # ============================================================
