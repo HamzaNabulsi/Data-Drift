@@ -10,7 +10,7 @@ Edit this file to specify which dataset to analyze.
 DATASETS = {
     'mimic': {
         'name': 'MIMIC (Mechanical Ventilation)',
-        'data_path': r'C:\Users\sebastian.cajasordon\Desktop\Data-Drift\data\mimic',
+        'data_path': r'C:\Users\sebastian.cajasordon\Documents\Data-Drift\data\mimic',
         'file': 'turning_interval_frequency.csv',
         'outcome_col': 'outcome',
         'outcome_positive': 'Deceased',  # Value indicating positive outcome (mortality)
@@ -33,7 +33,7 @@ DATASETS = {
 
     'eicu_v1': {
         'name': 'eICU v1 (Sepsis Cohort)',
-        'data_path': r'C:\Users\sebastian.cajasordon\Desktop\Data-Drift\data\eicu',
+        'data_path': r'C:\Users\sebastian.cajasordon\Documents\Data-Drift\data\eicu',
         'file': 'sepsis_adult_eicu_v1.csv',
         'outcome_col': 'hospitaldischargestatus',  # Adjust based on actual column
         'outcome_positive': 'Expired',  # Adjust based on actual value
@@ -52,7 +52,7 @@ DATASETS = {
 
     'eicu_v2': {
         'name': 'eICU v2 (Sepsis Cohort)',
-        'data_path': r'C:\Users\sebastian.cajasordon\Desktop\Data-Drift\data\eicu',
+        'data_path': r'C:\Users\sebastian.cajasordon\Documents\Data-Drift\data\eicu',
         'file': 'sepsis_adult_eicu_v2.csv',
         'outcome_col': 'hospitaldischargestatus',
         'outcome_positive': 'Expired',
@@ -71,7 +71,7 @@ DATASETS = {
 
     'mimic_mouthcare': {
         'name': 'MIMIC (Mouthcare Cohort)',
-        'data_path': r'C:\Users\sebastian.cajasordon\Desktop\Data-Drift\data\mimic',
+        'data_path': r'C:\Users\sebastian.cajasordon\Documents\Data-Drift\data\mimic',
         'file': 'mouthcare_interval_frequency.csv',
         'outcome_col': 'outcome',
         'outcome_positive': 'Deceased',
@@ -110,29 +110,40 @@ DATASETS = {
 
     'amsterdam_icu': {
         'name': 'Amsterdam ICU Dataset',
-        'data_path': None,
-        'file': None,
-        'outcome_col': None,
-        'outcome_positive': None,
+        'data_path': r'C:\Users\sebastian.cajasordon\Documents\Data-Drift\data\amsterdam',
+        'file': 'salz_ml-scores_bias.csv',
+        'outcome_col': 'death_hosp',
+        'outcome_positive': 1,  # 1 = death, 0 = survived
         'score_col': 'sofa',
-        'year_col': None,
-        'year_bins': None,
-        'demographic_cols': {},
-        'clinical_cols': {},
-        'has_precomputed_sofa': False,
-        'description': 'Amsterdam ICU dataset (pending)'
+        'year_col': 'anchor_year_group',
+        'year_bins': None,  # Will use individual years (2013-2021)
+        'demographic_cols': {
+            'gender': 'gender',
+            'age': 'age'
+            # Note: No race/ethnicity data in this dataset
+        },
+        'clinical_cols': {
+            'los_icu': 'los_icu_day',
+            'los_hospital': 'los_hospital_day',
+            'sapsii': 'sapsii',
+            'apsiii': 'apsiii',
+            'oasis': 'oasis',
+            'bmi': 'bmi'
+        },
+        'has_precomputed_sofa': True,
+        'description': 'Amsterdam UMC ICU dataset (2013-2021)'
     }
 }
 
 # ============================================================
 # ACTIVE DATASET - CHANGE THIS TO SWITCH DATASETS
 # ============================================================
-ACTIVE_DATASET = 'mimic'  # Options: 'mimic', 'eicu_v1', 'eicu_v2', 'mimic_mouthcare', etc.
+ACTIVE_DATASET = 'amsterdam_icu'  # Options: 'mimic', 'eicu_v1', 'eicu_v2', 'mimic_mouthcare', 'amsterdam_icu', etc.
 
 # ============================================================
 # OUTPUT CONFIGURATION
 # ============================================================
-OUTPUT_PATH = r'C:\Users\sebastian.cajasordon\Desktop\Data-Drift\output'
+OUTPUT_PATH = r'C:\Users\sebastian.cajasordon\Documents\Data-Drift\output'
 
 # Create dataset-specific output subdirectories
 OUTPUT_SUBDIRS = True  # If True, creates output/mimic/, output/eicu_v1/, etc.

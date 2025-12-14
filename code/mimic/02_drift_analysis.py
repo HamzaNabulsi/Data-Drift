@@ -8,6 +8,10 @@ import numpy as np
 from sklearn.metrics import roc_auc_score, accuracy_score, f1_score
 import matplotlib.pyplot as plt
 import os
+import sys
+
+# Add parent directory to path to import config
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from config import get_active_config, get_output_path, ACTIVE_DATASET, ANALYSIS_CONFIG
 
 # ============================================================
