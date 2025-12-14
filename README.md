@@ -24,38 +24,63 @@ uv pip install pandas numpy scikit-learn matplotlib seaborn
 
 ### Run Analysis
 
-**Option 1: Use generic scripts (recommended)**
 ```bash
 # 1. Configure dataset in code/config.py
-# ACTIVE_DATASET = 'mimic'
+#    ACTIVE_DATASET = 'mimic'  # or 'amsterdam_icu', 'eicu_v1', etc.
 
-# 2. Run generic scripts
-python code/01_explore_data.py
-python code/02_drift_analysis.py
+# 2. Run analysis from code directory
+cd code
+python mimic/01_explore_data.py
+python mimic/02_drift_analysis.py
 
 # 3. View results
-open output/mimic/mimic_drift_analysis.png
+# Results saved to: output/<dataset>/
 ```
 
-**Option 2: Use dataset-specific scripts**
-```bash
-# Run MIMIC-specific scripts
-python code/mimic/01_explore_data.py
-python code/mimic/02_drift_analysis.py
-```
+**Note:** Scripts use `code/config.py` to determine which dataset to analyze. The generic scripts use the dataset-specific scripts internally.
 
 ---
 
-## 📊 Datasets
+## 📊 Results Summary
 
-| Dataset | Status | Owner | Location | TODO |
-|---------|--------|-------|----------|------|
-| `mimic` | ✅ Ready | Sebastian | `data/mimic/` | - |
-| `mimic_mouthcare` | ✅ Ready | Sebastian | `data/mimic/` | Run analysis |
-| `eicu_v1` | ⚠️ Needs SOFA | Emma | `data/eicu/` | [TODO](data/eicu/TODO.md) |
-| `eicu_v2` | ⚠️ Needs SOFA | Emma | `data/eicu/` | [TODO](data/eicu/TODO.md) |
-| `chinese_icu` | 🔜 Dec 10 | Ziyue | `data/chinese/` | [TODO](data/chinese/TODO.md) |
-| `amsterdam_icu` | 🔜 Pending | TBD | `data/amsterdam/` | [TODO](data/amsterdam/TODO.md) |
+### Overall Drift by Dataset
+
+| Dataset | Period | N Patients | Mortality | SOFA Trend | AUC Change | Direction | Key Finding |
+|---------|--------|-----------|-----------|------------|-----------|-----------|-------------|
+| **MIMIC (Mech. Vent.)** | 2008-2019 | ~15-20k | 20-30% | Declining | - | ⬇️ Worsening | High-acuity ventilated patients |
+| **Amsterdam ICU** | 2013-2021 | 27,259 | 7.9% | Improving | **+0.034** (+5%) | ⬆️ Improving | General ICU population |
+
+### Amsterdam ICU Detailed Results (2013-2021)
+
+| Subgroup | 2013 AUC | 2021 AUC | Change | % Change | Trend |
+|----------|----------|----------|--------|----------|-------|
+| **Overall** | 0.684 | 0.718 | +0.034 | +5.0% | ⬆️ Improving |
+| **<50 years** | 0.659 | 0.818 | **+0.160** | **+24%** | 🔥 Exceptional |
+| **50-65 years** | 0.661 | 0.685 | +0.025 | +3.8% | ⬆️ Modest |
+| **65-80 years** | 0.698 | 0.679 | -0.019 | -2.7% | ⬇️ Declining |
+| **80+ years** | 0.697 | 0.776 | +0.079 | +11% | ⬆️ Strong |
+| **Male** | 0.648 | 0.689 | +0.041 | +6.3% | ⬆️ Improving |
+| **Female** | 0.751 | 0.760 | +0.009 | +1.2% | → Stable |
+
+**Key Insights:**
+- ✅ **Mortality decreased 38%** (11.7% → 7.2%)
+- 🔥 **Younger patients (<50):** Exceptional improvement (+0.160 AUC)
+- ⚠️ **Middle-aged (65-80):** Only declining subgroup
+- 👥 **Gender disparity:** Females consistently outperform males
+- 🦠 **COVID-19 impact:** -0.036 AUC drop in 2020-2021 vs 2017-2019 peak
+
+---
+
+## 📂 Datasets
+
+| Dataset | Status | N | Period | Mortality | SOFA | Documentation |
+|---------|--------|---|--------|-----------|------|---------------|
+| **MIMIC (Mech. Vent.)** | ✅ Complete | ~15-20k | 2008-2019 | 20-30% | ✅ Pre-computed | [data/mimic/](data/mimic/) |
+| **Amsterdam ICU** | ✅ Complete | 27,259 | 2013-2021 | 7.9% | ✅ Pre-computed | [data/amsterdam/](data/amsterdam/) |
+| **MIMIC (Mouthcare)** | ✅ Ready | - | 2008-2019 | - | ✅ Pre-computed | [data/mimic/](data/mimic/) |
+| **eICU v1 (Sepsis)** | ⚠️ Needs SOFA | - | - | - | ❌ Needs computation | [data/eicu/TODO.md](data/eicu/TODO.md) |
+| **eICU v2 (Sepsis)** | ⚠️ Needs SOFA | - | - | - | ❌ Needs computation | [data/eicu/TODO.md](data/eicu/TODO.md) |
+| **Chinese ICU** | 🔜 Pending | - | - | - | ❌ TBD | [data/chinese/TODO.md](data/chinese/TODO.md) |
 
 ---
 
@@ -63,104 +88,313 @@ python code/mimic/02_drift_analysis.py
 
 ```
 Data-Drift/
-├── code/                           # All analysis code (organized by dataset)
-│   ├── config.py                   # Global configuration
-│   ├── 01_explore_data.py          # Generic exploration script
-│   ├── 02_drift_analysis.py        # Generic drift analysis script
-│   ├── README.md                   # Code organization guide
+├── code/                           # Analysis code
+│   ├── config.py                   # ⚙️ Dataset configuration (EDIT THIS)
 │   │
-│   ├── mimic/                      # ✅ MIMIC-specific code (COMPLETE)
-│   │   ├── 01_explore_data.py
-│   │   └── 02_drift_analysis.py
+│   ├── mimic/                      # ✅ MIMIC scripts
+│   │   ├── 01_explore_data.py      # Exploratory analysis
+│   │   └── 02_drift_analysis.py    # Drift analysis + visualization
 │   │
-│   ├── eicu/                       # ⚠️ eICU placeholders (Emma)
-│   │   ├── 01_explore_data.py      # TODO: Implement
-│   │   └── 02_drift_analysis.py    # TODO: Implement
-│   │
-│   ├── chinese/                    # 🔜 Chinese ICU placeholders (Ziyue)
-│   │   ├── 01_explore_data.py      # TODO: Implement
-│   │   └── 02_drift_analysis.py    # TODO: Implement
-│   │
-│   └── amsterdam/                  # 🔜 Amsterdam placeholders (TBD)
-│       ├── 01_explore_data.py      # TODO: Implement
-│       └── 02_drift_analysis.py    # TODO: Implement
+│   ├── eicu/                       # ⚠️ eICU placeholders
+│   ├── chinese/                    # 🔜 Chinese ICU placeholders
+│   └── amsterdam/                  # 🔜 Amsterdam placeholders (use mimic/ scripts)
 │
-├── data/                           # All datasets
-│   ├── mimic/                      ✅ Data files + README
-│   ├── eicu/                       ⚠️ Data files + TODO.md
-│   ├── chinese/                    🔜 TODO.md
-│   └── amsterdam/                  🔜 TODO.md
+├── data/                           # Datasets
+│   ├── mimic/                      # ✅ MIMIC data + README
+│   ├── amsterdam/                  # ✅ Amsterdam data + README
+│   │   ├── salz_ml-scores_bias.csv # Dataset (27,259 patients)
+│   │   └── README.md               # Complete analysis documentation
+│   ├── eicu/                       # ⚠️ eICU data + TODO
+│   └── chinese/                    # 🔜 Chinese data + TODO
 │
-├── output/                         # Results (auto-generated)
-│   ├── mimic/
-│   └── ...
+├── output/                         # Generated results
+│   ├── mimic/                      # MIMIC outputs
+│   └── amsterdam_icu/              # ✅ Amsterdam outputs
+│       ├── amsterdam_icu_drift_analysis.png
+│       ├── amsterdam_icu_yearly_performance.csv
+│       ├── amsterdam_icu_gender_performance.csv
+│       └── amsterdam_icu_age_performance.csv
 │
-└── reference/                      # Reference only (SQL, notebooks, old code)
-    ├── sql/
-    ├── notebooks/
-    ├── legacy/
-    └── archive/
+└── reference/                      # Reference materials
+    ├── sql/                        # SOFA computation SQL
+    └── notebooks/                  # Exploratory notebooks
 ```
-
-### Code Organization
-
-**Each dataset has its own folder in `code/`:**
-- `code/mimic/` - Complete MIMIC analysis scripts ✅
-- `code/eicu/` - Placeholder scripts for Emma ⚠️
-- `code/chinese/` - Placeholder scripts for Ziyue 🔜
-- `code/amsterdam/` - Placeholder scripts for TBD 🔜
-
-**See [code/README.md](code/README.md) for details on code organization.**
 
 ---
 
 ## 🔬 Methodology
 
-### SOFA Score
+### SOFA Score (Sequential Organ Failure Assessment)
 
-**SOFA (Sequential Organ Failure Assessment)** evaluates 6 organ systems:
-- Respiratory, Cardiovascular, Renal, Coagulation, Liver, Neurological
-- **Range:** 0-24 (higher = worse)
+Evaluates 6 organ systems:
+- **Respiratory** (PaO2/FiO2 ratio)
+- **Cardiovascular** (Mean arterial pressure, vasopressors)
+- **Renal** (Creatinine, urine output)
+- **Coagulation** (Platelets)
+- **Liver** (Bilirubin)
+- **Neurological** (Glasgow Coma Scale)
 
-### Analysis
+**Range:** 0-24 (higher = worse organ failure)
 
-1. **01_explore_data.py** - Validates data, shows distributions
-2. **02_drift_analysis.py** - Analyzes drift across:
-   - Overall performance by time
-   - By race, gender, age, care frequency
-   - Generates multi-panel figure + CSV tables
+### Analysis Pipeline
+
+**Step 1: Exploratory Analysis** (`01_explore_data.py`)
+- Load and validate dataset
+- Check outcome distributions
+- Verify SOFA scores
+- Analyze demographics and clinical variables
+- Assess missing data
+
+**Step 2: Drift Analysis** (`02_drift_analysis.py`)
+- Overall SOFA performance over time
+- Subgroup-stratified analyses:
+  - Race (if available)
+  - Gender
+  - Age groups (<50, 50-65, 65-80, 80+)
+  - Care frequency (if available)
+- Generate visualizations + CSV outputs
+
+### Metrics
+
+- **AUC (Area Under ROC Curve):** Discrimination ability
+  - 0.5 = random, 0.7 = acceptable, 0.8 = excellent, 1.0 = perfect
+- **Accuracy:** Overall prediction accuracy
+- **F1 Score:** Balance of precision and recall
+- **Mortality Rate:** Observed outcome frequency
+
+---
+
+## ⚙️ Configuration
+
+### Switch Datasets
+
+Edit `code/config.py`:
+
+```python
+# Change this line to switch datasets
+ACTIVE_DATASET = 'amsterdam_icu'  # Options: 'mimic', 'amsterdam_icu', 'eicu_v1', etc.
+```
+
+### Available Datasets in Config
+
+```python
+DATASETS = {
+    'mimic': {...},                    # MIMIC mechanical ventilation
+    'mimic_mouthcare': {...},          # MIMIC mouthcare cohort
+    'eicu_v1': {...},                  # eICU sepsis v1
+    'eicu_v2': {...},                  # eICU sepsis v2
+    'amsterdam_icu': {...},            # ✅ Amsterdam ICU (2013-2021)
+    'chinese_icu': {...},              # Chinese ICU (pending)
+}
+```
+
+### Customize Analysis Parameters
+
+```python
+ANALYSIS_CONFIG = {
+    'min_sample_size': 30,             # Minimum patients per subgroup
+    'age_bins': [0, 50, 65, 80, 200],  # Age group boundaries
+    'age_labels': ['<50', '50-65', '65-80', '80+'],
+    'care_quartiles': 4,               # Care frequency quartiles
+    'figure_dpi': 300,                 # Output resolution
+    'figure_size': (16, 10),           # Figure dimensions
+}
+```
 
 ---
 
 ## 📈 Outputs
 
-Each dataset produces in `output/<dataset>/`:
+Each analysis generates in `output/<dataset>/`:
 
-- `<dataset>_drift_analysis.png` - Multi-panel visualization
-- `<dataset>_yearly_performance.csv` - Overall metrics
-- `<dataset>_race_performance.csv` - Race-stratified metrics
-- `<dataset>_gender_performance.csv` - Gender-stratified metrics
-- `<dataset>_care_performance.csv` - Care frequency metrics
-- `<dataset>_age_performance.csv` - Age group metrics
+### Visualizations
+- `<dataset>_drift_analysis.png` - Multi-panel figure with:
+  - Overall SOFA performance over time
+  - Race-stratified trends (if available)
+  - Gender-stratified trends
+  - Age group-stratified trends
+  - Care frequency trends (if available)
+
+### CSV Files
+- `<dataset>_yearly_performance.csv` - Overall metrics by year
+- `<dataset>_race_performance.csv` - Race-stratified (if available)
+- `<dataset>_gender_performance.csv` - Gender-stratified
+- `<dataset>_age_performance.csv` - Age-stratified
+- `<dataset>_care_performance.csv` - Care frequency (if available)
+
+**Columns in CSV files:**
+- `AUC`, `Accuracy`, `F1`, `N`, `Mortality_Rate`, `Mean_Score`, `Period`, `[Subgroup]`
 
 ---
 
-## 🛠️ Configuration
+## 🔄 Running Analyses
 
-Edit `code/config.py` to switch datasets or customize parameters:
+### MIMIC Dataset
+
+```bash
+cd code
+# Edit config.py: ACTIVE_DATASET = 'mimic'
+python mimic/01_explore_data.py
+python mimic/02_drift_analysis.py
+# Results in: output/mimic/
+```
+
+### Amsterdam Dataset
+
+```bash
+cd code
+# Edit config.py: ACTIVE_DATASET = 'amsterdam_icu'
+python mimic/01_explore_data.py
+python mimic/02_drift_analysis.py
+# Results in: output/amsterdam_icu/
+```
+
+**Note:** Amsterdam uses the MIMIC scripts - they are dataset-agnostic and read from `config.py`.
+
+### eICU Dataset (After SOFA Computation)
+
+```bash
+cd code
+# Edit config.py: ACTIVE_DATASET = 'eicu_v1'
+python mimic/01_explore_data.py  # Reuse MIMIC scripts
+python mimic/02_drift_analysis.py
+```
+
+---
+
+## 📊 Key Findings
+
+### Amsterdam vs MIMIC Comparison
+
+| Feature | Amsterdam ICU | MIMIC (Mech. Vent.) |
+|---------|---------------|---------------------|
+| **Overall Trend** | ⬆️ **Improving** (+0.034 AUC) | ⬇️ **Declining** |
+| **Population** | General ICU | Mechanical ventilation only |
+| **Mortality** | 7.9% (low) | 20-30% (high) |
+| **Best Subgroup** | <50 years (+0.160 AUC) | Varies |
+| **Worst Subgroup** | 65-80 years (-0.019 AUC) | Varies |
+| **Gender Pattern** | Female advantage | Mixed |
+| **Race Data** | ❌ Not available | ✅ Available |
+
+### Critical Insights
+
+1. **Opposite Drift Patterns**
+   - Amsterdam: SOFA performance **improving** over time
+   - MIMIC: SOFA performance **declining** over time
+   - **Hypothesis:** Different patient populations (general ICU vs high-acuity ventilated)
+
+2. **Age-Specific Heterogeneity** (Amsterdam)
+   - Younger patients (<50): Exceptional improvement (+24%)
+   - Middle-aged (65-80): Only declining group (-2.7%)
+   - **Implication:** Age-specific recalibration may be needed
+
+3. **COVID-19 Impact** (Amsterdam)
+   - 2020-2021 vs 2017-2019 peak: -0.036 AUC
+   - 38% reduction in patient volume
+   - Higher severity (mean SOFA +0.15)
+
+4. **Gender Disparity** (Amsterdam)
+   - Females consistently outperform males (7/9 years)
+   - Gap averages +0.04 to +0.07 AUC
+   - **Requires further investigation**
+
+---
+
+## 📝 Documentation
+
+### Dataset-Specific Documentation
+
+**Amsterdam ICU:**
+- [README.md](data/amsterdam/README.md) - Complete analysis results and documentation
+
+**MIMIC:**
+- [README.md](data/mimic/README.md) - Dataset information
+
+**eICU:**
+- [TODO.md](data/eicu/TODO.md) - Setup instructions
+
+**Chinese ICU:**
+- [TODO.md](data/chinese/TODO.md) - Pending setup
+
+---
+
+## 🛠️ Adding New Datasets
+
+### Step 1: Prepare Data
+Place CSV file in `data/<dataset>/` with required columns:
+- **Outcome:** Binary mortality indicator
+- **SOFA:** Pre-computed or to be computed
+- **Year:** Temporal variable
+- **Demographics:** Age, gender, race (optional)
+
+### Step 2: Update Config
+Add entry to `code/config.py`:
 
 ```python
-# Switch dataset
-ACTIVE_DATASET = 'mimic'  # Options: 'mimic', 'mimic_mouthcare', 'eicu_v1', etc.
-
-# Customize analysis
-ANALYSIS_CONFIG = {
-    'min_sample_size': 30,
-    'age_bins': [0, 50, 65, 80, 200],
-    'age_labels': ['<50', '50-65', '65-80', '80+'],
-    'figure_dpi': 300,
+'your_dataset': {
+    'name': 'Dataset Name',
+    'data_path': r'path/to/data',
+    'file': 'data.csv',
+    'outcome_col': 'death',
+    'outcome_positive': 1,
+    'score_col': 'sofa',
+    'year_col': 'year',
+    'year_bins': None,  # or ['2010-2012', '2013-2015', ...]
+    'demographic_cols': {
+        'race': 'race_col',
+        'gender': 'gender_col',
+        'age': 'age_col'
+    },
+    'clinical_cols': {...},
+    'has_precomputed_sofa': True,
+    'description': 'Dataset description'
 }
 ```
+
+### Step 3: Run Analysis
+```bash
+cd code
+# Edit config.py: ACTIVE_DATASET = 'your_dataset'
+python mimic/01_explore_data.py
+python mimic/02_drift_analysis.py
+```
+
+---
+
+## 🔗 Resources
+
+### SOFA Score Computation
+- **SQL Code:** `reference/sql/`
+- **GitHub Reference:** https://github.com/nus-mornin-lab/oxygenation_kc
+- **Calculator:** https://www.mdcalc.com/calc/691/sequential-organ-failure-assessment-sofa-score
+
+### Publications
+- Vincent JL, et al. "The SOFA (Sepsis-related Organ Failure Assessment) score to describe organ dysfunction/failure." *Intensive Care Med* 1996.
+
+---
+
+## 📊 Status Update
+
+### Completed
+- ✅ **MIMIC (Mechanical Ventilation)** - Full analysis complete
+- ✅ **Amsterdam ICU** - Full analysis complete (27,259 patients, 2013-2021)
+  - Exploratory analysis done
+  - Drift analysis done
+  - Comprehensive documentation created
+  - Key finding: Improving SOFA performance (+0.034 AUC)
+
+### In Progress
+- ⚠️ **eICU v1 & v2** - Needs SOFA score computation (Emma)
+
+### Pending
+- 🔜 **Chinese ICU** - Awaiting data (Ziyue)
+- 🔜 **MIMIC Mouthcare** - Ready to run analysis
+
+### Future Work
+- Multi-score validation (SAPS II, OASIS, APACHE III for Amsterdam)
+- COVID-19 deep dive analysis
+- Cross-dataset drift comparison paper
+- Machine learning model benchmarking
 
 ---
 
@@ -179,13 +413,6 @@ See [CITATION.cff](CITATION.cff) for full metadata.
 
 ---
 
-## 🔗 Resources
-
-- **SOFA Code:** `reference/sql/` or https://github.com/nus-mornin-lab/oxygenation_kc
-- **SOFA Reference:** https://www.mdcalc.com/calc/691/sequential-organ-failure-assessment-sofa-score
-
----
-
 ## ⚖️ License
 
 [![LICENSE](https://img.shields.io/badge/license-CC%20BY--NC--SA-blue.svg)](https://creativecommons.org/licenses/by-nc-sa/4.0/)
@@ -193,11 +420,3 @@ See [CITATION.cff](CITATION.cff) for full metadata.
 [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/)
 
 ---
-
-## 🔄 Status
-
-- ✅ MIMIC analyzed
-- ⚠️ eICU needs SOFA computation (Emma)
-- 🔜 Chinese ICU (Ziyue - Dec 10)
-- 🔜 Amsterdam ICU (TBD)
-- 📊 Additional metrics in development
