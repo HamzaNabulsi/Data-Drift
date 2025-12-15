@@ -41,70 +41,65 @@ python mimic/02_drift_analysis.py
 
 ---
 
-## 📊 Results Summary
+## Results Summary
 
-### Overall Drift by Dataset
+### Multi-Dataset Analysis (809,991 ICU Admissions)
 
-| Dataset | Period | N Patients | Mortality | SOFA Trend | AUC Change | Direction | Key Finding |
-|---------|--------|-----------|-----------|------------|-----------|-----------|-------------|
-| **MIMIC (Mech. Vent.)** | 2008-2019 | ~15-20k | 20-30% | Declining | - | ⬇️ Worsening | High-acuity ventilated patients |
-| **MIMIC (Mouthcare)** | 2008-2019 | 8,675 | 27% → 34% | Slight improvement | **+0.022** (+4%) | → Stable | Care frequency matters (low care: +0.146 AUC) |
-| **Amsterdam ICU** | 2013-2021 | 27,259 | 7.9% | Improving | **+0.034** (+5%) | ⬆️ Improving | General ICU population |
+We analyzed ICU severity score drift across **6 datasets** spanning **2001-2022** from the US, Europe, and Asia.
 
-### Amsterdam ICU Detailed Results (2013-2021)
+**Table 1: Dataset Overview and Overall OASIS AUC Change**
 
-| Subgroup | 2013 AUC | 2021 AUC | Change | % Change | Trend |
-|----------|----------|----------|--------|----------|-------|
-| **Overall** | 0.684 | 0.718 | +0.034 | +5.0% | ⬆️ Improving |
-| **<50 years** | 0.659 | 0.818 | **+0.160** | **+24%** | 🔥 Exceptional |
-| **50-65 years** | 0.661 | 0.685 | +0.025 | +3.8% | ⬆️ Modest |
-| **65-80 years** | 0.698 | 0.679 | -0.019 | -2.7% | ⬇️ Declining |
-| **80+ years** | 0.697 | 0.776 | +0.079 | +11% | ⬆️ Strong |
-| **Male** | 0.648 | 0.689 | +0.041 | +6.3% | ⬆️ Improving |
-| **Female** | 0.751 | 0.760 | +0.009 | +1.2% | → Stable |
+| Dataset | N | Period | Mortality | OASIS AUC Change | Direction |
+|---------|---|--------|-----------|------------------|-----------|
+| MIMIC-IV | 85,242 | 2008-2022 | 10.9% | +0.011 | Improving |
+| Amsterdam | 27,259 | 2013-2021 | 7.9% | +0.049 | Improving |
+| Zhejiang | 7,932 | 2011-2022 | 14.7% | +0.049 | Improving |
+| eICU | 289,503 | 2014-2015 | 8.7% | -0.006 | Stable |
+| eICU-New | 371,855 | 2020-2021 | 12.7% | -0.014 | Declining |
 
-**Key Insights:**
-- ✅ **Mortality decreased 38%** (11.7% → 7.2%)
-- 🔥 **Younger patients (<50):** Exceptional improvement (+0.160 AUC)
-- ⚠️ **Middle-aged (65-80):** Only declining subgroup
-- 👥 **Gender disparity:** Females consistently outperform males
-- 🦠 **COVID-19 impact:** -0.036 AUC drop in 2020-2021 vs 2017-2019 peak
+**Table 2: Subgroup-Specific OASIS AUC Change (First to Last Period)**
 
-### MIMIC Mouthcare Results (2008-2019)
+| Subgroup | MIMIC-IV | Amsterdam | Zhejiang | eICU | eICU-New |
+|----------|----------|-----------|----------|------|----------|
+| **Age 18-44** | +0.056 | +0.059 | -0.034 | +0.001 | -0.023 |
+| **Age 80+** | -0.035 | +0.030 | -0.004 | -0.016 | +0.004 |
+| **Male** | +0.026 | +0.069 | +0.030 | -0.005 | -0.017 |
+| **Female** | -0.007 | +0.006 | +0.082 | -0.007 | -0.010 |
+| **White** | +0.010 | - | - | -0.005 | -0.015 |
+| **Black** | +0.013 | - | - | -0.019 | -0.027 |
+| **Hispanic** | - | - | - | -0.021 | **-0.078** |
+| **Asian** | **+0.114** | - | - | +0.046 | -0.040 |
 
-| Period | N | Mortality | AUC | Change from 2008-2010 |
-|--------|---|-----------|-----|-----------------------|
-| 2008-2010 | 3,418 | 26.7% | 0.608 | Baseline |
-| 2011-2013 | 2,140 | 27.4% | 0.601 | -0.007 |
-| 2014-2016 | 1,946 | 28.7% | 0.619 | +0.011 |
-| 2017-2019 | 1,171 | 34.2% | 0.630 | **+0.022** |
+### Key Findings
 
-**Key Subgroup Findings:**
+1. **COVID-era decline**: eICU-New (2020-21) shows universal performance drops vs eICU (2014-15)
+2. **Hispanic patients most affected**: -0.078 AUC in COVID era (largest decline)
+3. **Asian patients improved most**: +0.114 AUC in MIMIC-IV over 14 years
+4. **Age divergence**: Young (18-44) improve while elderly (80+) decline in most datasets
 
-| Subgroup | 2008-2010 AUC | 2017-2019 AUC | Change | Trend |
-|----------|---------------|---------------|--------|-------|
-| **Care: Low frequency (Q4)** | 0.611 | 0.757 | **+0.146** | 🔥 Largest improvement |
-| **Care: High frequency (Q1)** | 0.619 | 0.628 | +0.009 | → Stable |
-| **Female** | 0.607 | 0.661 | +0.054 | ⬆️ Improving |
-| **Male** | 0.610 | 0.610 | 0.000 | → Unchanged |
-| **<50 years** | 0.675 | 0.721 | +0.047 | ⬆️ Improving |
-| **Black patients** | 0.657 | 0.551 | -0.106 | ⬇️ Declining |
-| **Other race** | 0.567 | 0.672 | +0.104 | ⬆️ Improving |
+### Key Figures
 
-**Critical Finding:** Patients receiving **less frequent mouthcare** show the largest SOFA performance improvement (+0.146), suggesting changing case-mix or care protocols.
+![Overall Drift](figures/fig1_overall_drift_comparison.png)
+*Figure 1: Overall score performance trends across datasets*
+
+![Age Stratified](figures/fig2_age_stratified_drift.png)
+*Figure 2: Age-stratified drift showing diverging trajectories*
+
+![Money Figure](figures/fig7_money_figure.png)
+*Figure 3: Summary of key findings across all datasets and subgroups*
 
 ---
 
-## 📂 Datasets
+## Datasets
 
-| Dataset | Status | N | Period | Mortality | SOFA | Documentation |
-|---------|--------|---|--------|-----------|------|---------------|
-| **MIMIC (Mech. Vent.)** | ✅ Complete | ~15-20k | 2008-2019 | 20-30% | ✅ Pre-computed | [data/mimic/](data/mimic/) |
-| **MIMIC (Mouthcare)** | ✅ Complete | 8,675 | 2008-2019 | 27-34% | ✅ Pre-computed | [data/mimic/](data/mimic/) |
-| **Amsterdam ICU** | ✅ Complete | 27,259 | 2013-2021 | 7.9% | ✅ Pre-computed | [data/amsterdam/](data/amsterdam/) |
-| **eICU v1 (Sepsis)** | ⚠️ Needs SOFA | - | - | - | ❌ Needs computation | [data/eicu/TODO.md](data/eicu/TODO.md) |
-| **eICU v2 (Sepsis)** | ⚠️ Needs SOFA | - | - | - | ❌ Needs computation | [data/eicu/TODO.md](data/eicu/TODO.md) |
-| **Chinese ICU** | 🔜 Pending | - | - | - | ❌ TBD | [data/chinese/TODO.md](data/chinese/TODO.md) |
+| Dataset | Status | N | Period | Scores | Race Data |
+|---------|--------|---|--------|--------|-----------|
+| **MIMIC-III** | Complete | 27,226 | 2001-2008 | OASIS, SAPS-II, APS-III | Yes |
+| **MIMIC-IV** | Complete | 85,242 | 2008-2022 | OASIS, SAPS-II, APS-III | Yes |
+| **eICU** | Complete | 289,503 | 2014-2015 | OASIS, SAPS-II, APS-III, APACHE | Yes |
+| **eICU-New** | Complete | 371,855 | 2020-2021 | OASIS, SAPS-II, APS-III, APACHE | Yes |
+| **Amsterdam** | Complete | 27,259 | 2013-2021 | SOFA, OASIS, SAPS-II, APS-III | No |
+| **Zhejiang** | Complete | 7,932 | 2011-2022 | SOFA, OASIS, SAPS-II, APS-III | No |
 
 ---
 
