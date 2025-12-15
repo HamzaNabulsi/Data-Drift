@@ -21,6 +21,11 @@ from sklearn.metrics import roc_auc_score
 import warnings
 warnings.filterwarnings('ignore')
 
+# Bootstrap settings for confidence intervals
+N_BOOTSTRAP = 1000
+CI_LEVEL = 0.95
+RANDOM_SEED = 42
+
 # Define age bins consistently across all datasets
 AGE_BINS = [18, 45, 65, 80, 150]
 AGE_LABELS = ['18-44', '45-64', '65-79', '80+']
@@ -91,8 +96,73 @@ def compute_auc(y_true, y_pred):
         return np.nan
 
 
-def analyze_drift(df, config, score_col):
-    """Analyze drift for a specific score across subgroups."""
+def compute_auc_with_ci(y_true, y_pred, n_bootstrap=N_BOOTSTRAP, ci_level=CI_LEVEL):
+    """
+    Compute AUC with bootstrap confidence intervals.
+
+    Returns:
+        tuple: (auc, ci_lower, ci_upper) or (nan, nan, nan) if computation fails
+    """
+    try:
+        # Convert to numpy arrays
+        y_true = np.array(y_true)
+        y_pred = np.array(y_pred)
+
+        # Handle missing values
+        mask = ~np.isnan(y_pred) & ~np.isnan(y_true)
+        y_true = y_true[mask]
+        y_pred = y_pred[mask]
+
+        if len(y_true) < 30 or len(np.unique(y_true)) < 2:
+            return np.nan, np.nan, np.nan
+
+        # Compute point estimate
+        auc = roc_auc_score(y_true, y_pred)
+
+        # Bootstrap for CI
+        rng = np.random.RandomState(RANDOM_SEED)
+        n = len(y_true)
+        bootstrap_aucs = []
+
+        for _ in range(n_bootstrap):
+            # Stratified bootstrap to maintain class balance
+            idx = rng.randint(0, n, n)
+            y_true_boot = y_true[idx]
+            y_pred_boot = y_pred[idx]
+
+            # Skip if only one class in bootstrap sample
+            if len(np.unique(y_true_boot)) < 2:
+                continue
+
+            try:
+                bootstrap_aucs.append(roc_auc_score(y_true_boot, y_pred_boot))
+            except:
+                continue
+
+        if len(bootstrap_aucs) < n_bootstrap * 0.5:
+            # Too many failed bootstraps
+            return auc, np.nan, np.nan
+
+        # Compute percentile CI
+        alpha = (1 - ci_level) / 2
+        ci_lower = np.percentile(bootstrap_aucs, alpha * 100)
+        ci_upper = np.percentile(bootstrap_aucs, (1 - alpha) * 100)
+
+        return auc, ci_lower, ci_upper
+
+    except Exception as e:
+        return np.nan, np.nan, np.nan
+
+
+def analyze_drift(df, config, score_col, compute_ci=True):
+    """Analyze drift for a specific score across subgroups.
+
+    Args:
+        df: DataFrame with patient data
+        config: Dataset configuration
+        score_col: Column name for the severity score
+        compute_ci: Whether to compute bootstrap confidence intervals (slower but recommended)
+    """
     results = []
 
     year_col = config['year_col']
@@ -113,20 +183,35 @@ def analyze_drift(df, config, score_col):
         return pd.DataFrame()
 
     print(f"  Time periods: {time_periods}")
+    if compute_ci:
+        print(f"  Computing {int(CI_LEVEL*100)}% bootstrap CIs (n={N_BOOTSTRAP})...")
+
+    def _compute_and_append(subset, subgroup_type, subgroup, period):
+        """Helper to compute AUC (+CI) and append to results."""
+        if compute_ci:
+            auc, ci_lower, ci_upper = compute_auc_with_ci(
+                subset['outcome_binary'], subset[score_col]
+            )
+        else:
+            auc = compute_auc(subset['outcome_binary'], subset[score_col])
+            ci_lower, ci_upper = np.nan, np.nan
+
+        results.append({
+            'subgroup_type': subgroup_type,
+            'subgroup': subgroup,
+            'time_period': str(period),
+            'auc': auc,
+            'auc_ci_lower': ci_lower,
+            'auc_ci_upper': ci_upper,
+            'n': len(subset),
+            'n_deaths': int(subset['outcome_binary'].sum()),
+            'mortality_rate': subset['outcome_binary'].mean()
+        })
 
     # Overall AUC by time period
     for period in time_periods:
         subset = df[df[year_col] == period]
-        auc = compute_auc(subset['outcome_binary'], subset[score_col])
-        results.append({
-            'subgroup_type': 'Overall',
-            'subgroup': 'All',
-            'time_period': str(period),
-            'auc': auc,
-            'n': len(subset),
-            'n_deaths': subset['outcome_binary'].sum(),
-            'mortality_rate': subset['outcome_binary'].mean()
-        })
+        _compute_and_append(subset, 'Overall', 'All', period)
 
     # Age group analysis
     if 'age_group' in df.columns:
@@ -134,16 +219,7 @@ def analyze_drift(df, config, score_col):
             for period in time_periods:
                 subset = df[(df['age_group'] == age_group) & (df[year_col] == period)]
                 if len(subset) >= 50:
-                    auc = compute_auc(subset['outcome_binary'], subset[score_col])
-                    results.append({
-                        'subgroup_type': 'Age',
-                        'subgroup': age_group,
-                        'time_period': str(period),
-                        'auc': auc,
-                        'n': len(subset),
-                        'n_deaths': subset['outcome_binary'].sum(),
-                        'mortality_rate': subset['outcome_binary'].mean()
-                    })
+                    _compute_and_append(subset, 'Age', age_group, period)
 
     # Gender analysis
     if 'gender_std' in df.columns:
@@ -151,16 +227,7 @@ def analyze_drift(df, config, score_col):
             for period in time_periods:
                 subset = df[(df['gender_std'] == gender) & (df[year_col] == period)]
                 if len(subset) >= 50:
-                    auc = compute_auc(subset['outcome_binary'], subset[score_col])
-                    results.append({
-                        'subgroup_type': 'Gender',
-                        'subgroup': gender,
-                        'time_period': str(period),
-                        'auc': auc,
-                        'n': len(subset),
-                        'n_deaths': subset['outcome_binary'].sum(),
-                        'mortality_rate': subset['outcome_binary'].mean()
-                    })
+                    _compute_and_append(subset, 'Gender', gender, period)
 
     # Race analysis
     if 'race_std' in df.columns:
@@ -168,22 +235,13 @@ def analyze_drift(df, config, score_col):
             for period in time_periods:
                 subset = df[(df['race_std'] == race) & (df[year_col] == period)]
                 if len(subset) >= 30:  # Lower threshold for minority groups
-                    auc = compute_auc(subset['outcome_binary'], subset[score_col])
-                    results.append({
-                        'subgroup_type': 'Race',
-                        'subgroup': race,
-                        'time_period': str(period),
-                        'auc': auc,
-                        'n': len(subset),
-                        'n_deaths': subset['outcome_binary'].sum(),
-                        'mortality_rate': subset['outcome_binary'].mean()
-                    })
+                    _compute_and_append(subset, 'Race', race, period)
 
     return pd.DataFrame(results)
 
 
 def compute_drift_deltas(results_df):
-    """Compute drift (AUC change) between first and last time period."""
+    """Compute drift (AUC change) between first and last time period with CIs."""
     if results_df.empty:
         return pd.DataFrame()
 
@@ -204,12 +262,36 @@ def compute_drift_deltas(results_df):
             auc_last = last['auc'].values[0]
 
             if not np.isnan(auc_first) and not np.isnan(auc_last):
+                delta = auc_last - auc_first
+
+                # Get CIs if available
+                ci_first_lower = first['auc_ci_lower'].values[0] if 'auc_ci_lower' in first.columns else np.nan
+                ci_first_upper = first['auc_ci_upper'].values[0] if 'auc_ci_upper' in first.columns else np.nan
+                ci_last_lower = last['auc_ci_lower'].values[0] if 'auc_ci_lower' in last.columns else np.nan
+                ci_last_upper = last['auc_ci_upper'].values[0] if 'auc_ci_upper' in last.columns else np.nan
+
+                # Compute delta CI (conservative: propagate uncertainty)
+                # delta_lower = last_lower - first_upper (worst case for decrease)
+                # delta_upper = last_upper - first_lower (worst case for increase)
+                if not np.isnan(ci_first_lower) and not np.isnan(ci_last_lower):
+                    delta_ci_lower = ci_last_lower - ci_first_upper
+                    delta_ci_upper = ci_last_upper - ci_first_lower
+                else:
+                    delta_ci_lower = np.nan
+                    delta_ci_upper = np.nan
+
                 deltas.append({
                     'subgroup_type': subgroup_type,
                     'subgroup': subgroup,
                     'auc_first': auc_first,
+                    'auc_first_ci_lower': ci_first_lower,
+                    'auc_first_ci_upper': ci_first_upper,
                     'auc_last': auc_last,
-                    'delta': auc_last - auc_first,
+                    'auc_last_ci_lower': ci_last_lower,
+                    'auc_last_ci_upper': ci_last_upper,
+                    'delta': delta,
+                    'delta_ci_lower': delta_ci_lower,
+                    'delta_ci_upper': delta_ci_upper,
                     'period_first': first_period,
                     'period_last': last_period,
                     'n_first': first['n'].values[0],
@@ -222,8 +304,9 @@ def compute_drift_deltas(results_df):
 def run_batch_analysis(datasets_to_run=None):
     """Run drift analysis on all (or specified) datasets."""
 
-    # Define which datasets to analyze (those with temporal data)
-    temporal_datasets = ['mimiciv', 'amsterdam_icu', 'zhejiang', 'eicu', 'eicu_new']
+    # Define which datasets to analyze
+    # Note: mimiciii has only one time period (2001-2008) so no drift, but included for baseline comparison
+    temporal_datasets = ['mimiciii', 'mimiciv', 'amsterdam_icu', 'zhejiang', 'eicu', 'eicu_new']
 
     if datasets_to_run is None:
         datasets_to_run = temporal_datasets

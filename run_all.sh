@@ -150,7 +150,7 @@ if [ "$RUN_ANALYSIS" = true ]; then
 
     echo "Analyzing all datasets..."
     echo ""
-    echo "Datasets:"
+    echo "Primary Datasets:"
     echo "  - MIMIC-IV (85,242 patients)"
     echo "  - Amsterdam ICU (27,259 patients)"
     echo "  - Zhejiang ICU (7,932 patients)"
@@ -159,6 +159,14 @@ if [ "$RUN_ANALYSIS" = true ]; then
     echo ""
 
     python code/batch_analysis.py
+
+    echo ""
+    echo "MIMIC-IV Subsets (SOFA + Care Frequency):"
+    echo "  - MIMIC-IV Mouthcare (8,675 patients)"
+    echo "  - MIMIC-IV Mech. Vent. (8,919 patients)"
+    echo ""
+
+    python code/supplementary_analysis.py
 
     echo ""
     echo -e "${GREEN}Batch analysis complete!${NC}"
