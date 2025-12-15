@@ -608,10 +608,12 @@ def fig7_money_figure(results, deltas):
                     last_ci = [last_row['auc_ci_lower'].values[0], last_row['auc_ci_upper'].values[0]]
 
                     if not np.isnan(first_ci[0]):
-                        ax1.errorbar([0], [first_auc], yerr=[[first_auc - first_ci[0]], [first_ci[1] - first_auc]],
+                        yerr_first = [[max(0, first_auc - first_ci[0])], [max(0, first_ci[1] - first_auc)]]
+                        ax1.errorbar([0], [first_auc], yerr=yerr_first,
                                     color=color, alpha=alpha, capsize=4, capthick=1.5, fmt='none')
                     if not np.isnan(last_ci[0]):
-                        ax1.errorbar([1], [last_auc], yerr=[[last_auc - last_ci[0]], [last_ci[1] - last_auc]],
+                        yerr_last = [[max(0, last_auc - last_ci[0])], [max(0, last_ci[1] - last_auc)]]
+                        ax1.errorbar([1], [last_auc], yerr=yerr_last,
                                     color=color, alpha=alpha, capsize=4, capthick=1.5, fmt='none')
 
     ax1.set_xticks([0, 1])
@@ -640,6 +642,7 @@ def fig7_money_figure(results, deltas):
                 race_ci_upper.loc[race_avg.index].values - race_avg.values
             ])
             xerr = np.nan_to_num(xerr, nan=0)
+            xerr = np.clip(xerr, 0, None)  # Error bars must be non-negative
             bars = ax2.barh(race_avg.index, race_avg.values, color=colors,
                            xerr=xerr, capsize=3, error_kw={'elinewidth': 1})
         else:
@@ -683,6 +686,8 @@ def fig7_money_figure(results, deltas):
                                   np.array(covid_ci_upper) - np.array(covid_means)])
             pre_yerr = np.nan_to_num(pre_yerr, nan=0)
             covid_yerr = np.nan_to_num(covid_yerr, nan=0)
+            pre_yerr = np.clip(pre_yerr, 0, None)  # Error bars must be non-negative
+            covid_yerr = np.clip(covid_yerr, 0, None)  # Error bars must be non-negative
 
             ax3.bar(x - width/2, pre_means, width, label='Pre-COVID (2014-15)', color='#1f77b4',
                    yerr=pre_yerr, capsize=3, error_kw={'elinewidth': 1})
