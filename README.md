@@ -3,7 +3,21 @@
 [![LICENSE](https://img.shields.io/badge/license-CC%20BY--NC--SA-blue.svg)](https://creativecommons.org/licenses/by-nc-sa/4.0/)
 [![Python](https://img.shields.io/badge/python-3.10+-blue.svg)](https://github.com/sebasmos/Data-Drift)
 
-> **TL;DR:** ICU severity scores (OASIS, SAPS-II, APS-III, SOFA) drift differently across demographic subgroups. We analyze 826,611 ICU admissions across 6 primary + 2 supplementary datasets from the US, Europe, and Asia (2001-2022) to quantify these disparities.
+> **TL;DR:** ICU severity scores (OASIS, SAPS-II, APS-III, SOFA) drift differently across demographic subgroups. We analyze 809,017 ICU admissions across 4 primary + 2 supplementary datasets from the US, Europe, and Asia (2001-2022) to quantify these disparities.
+
+---
+
+## Core Hypothesis
+
+> **Model drift affects demographic subgroups NON-UNIFORMLY.** This has critical implications for clinical decision-making and suggests that uniform recalibration strategies would fail to address subgroup-specific disparities.
+
+### Why This Matters
+
+Traditional model monitoring tracks *overall* performance degradation. But our analysis reveals that:
+
+1. **Young and elderly patients experience OPPOSITE drift directions** — a pattern consistent across US, European, and Asian datasets
+2. **The same subgroup can improve in one healthcare system while declining in another**
+3. **A single recalibration factor applied uniformly would help one group while harming another**
 
 ---
 
@@ -76,179 +90,134 @@ python code/batch_analysis.py -b 1000          # 1000 iterations
 
 ### Datasets Analyzed
 
-**Primary Datasets:**
+**Primary Datasets (Combined for Temporal Analysis):**
 
 | Dataset | N | Period | Mortality | Scores | Race | Source |
 |---------|---|--------|-----------|--------|------|--------|
-| MIMIC-III | 27,226 | 2001-2008 | ~12% | **SOFA**, OASIS, SAPS-II, APS-III | Yes | US (Boston) |
-| MIMIC-IV | 85,242 | 2008-2022 | 10.9% | **SOFA**, OASIS, SAPS-II, APS-III | Yes | US (Boston) |
-| eICU | 289,503 | 2014-2015 | 8.7% | **SOFA**, OASIS, SAPS-II, APS-III, APACHE | Yes | US (Multi-center) |
-| eICU-New | 371,855 | 2020-2021 | 12.7% | **SOFA**, OASIS, SAPS-II, APS-III, APACHE | Yes | US (Multi-center) |
+| MIMIC Combined | 112,468 | 2001-2022 | 11.1% | **SOFA**, OASIS, SAPS-II, APS-III | Yes | US (Boston) |
+| eICU Combined | 661,358 | 2014-2021 | 10.9% | **SOFA**, OASIS, SAPS-II, APS-III, APACHE | Yes | US (Multi-center) |
 | Saltz | 27,259 | 2013-2021 | 7.9% | **SOFA**, OASIS, SAPS-II, APS-III | No | Europe (Netherlands) |
 | Zhejiang | 7,932 | 2011-2022 | 14.7% | **SOFA**, OASIS, SAPS-II, APS-III | No | Asia (China) |
 
-**MIMIC-IV Subsets (with SOFA + care frequency):**
+*MIMIC Combined = MIMIC-III (2001-2008) + MIMIC-IV (2008-2022) for continuous 21-year analysis*
+*eICU Combined = eICU-old (2014-2015) + eICU-new (2020-2021) for 7-year temporal analysis*
+
+**MIMIC-IV Subsets (with SOFA + Care Phenotypes):**
 
 | Dataset | N | Period | Mortality | Scores | Race | Analysis Focus |
 |---------|---|--------|-----------|--------|------|----------------|
 | MIMIC-IV Mouthcare | 8,675 | 2008-2019 | ~30% | **SOFA** | Yes | Oral care frequency |
 | MIMIC-IV Mech. Vent. | 8,919 | 2008-2019 | ~30% | **SOFA** | Yes | Turning frequency |
 
-**Total: 826,611 ICU admissions across 8 datasets**
+*Care Phenotypes: A novel approach using nursing care frequency as a proxy for intersectional demographics. See [Care Phenotypes Documentation](docs/care_phenotypes.md) for details.*
+
+**Total: 809,017 ICU admissions across 4 primary + 2 supplementary datasets**
 
 ### Overall Drift by Dataset
 
-| Dataset | SOFA Δ (95% CI) | OASIS Δ (95% CI) | SAPS-II Δ (95% CI) | APS-III Δ (95% CI) | Direction |
-|---------|-----------------|------------------|--------------------|--------------------|-----------|
-| MIMIC-III | - | - | - | - | *Baseline (single period)* |
-| MIMIC-IV | **+0.034** (0.009, 0.067) | +0.011 (-0.013, 0.034) | +0.008 (-0.013, 0.029) | +0.022 (-0.003, 0.042) | Improving |
-| Saltz | **+0.034** (-0.029, 0.102) | +0.049 (-0.014, 0.113) | +0.054 (-0.020, 0.112) | +0.076 (0.009, 0.131) | Improving |
-| Zhejiang | **+0.050** (-0.042, 0.136) | +0.049 (-0.027, 0.139) | +0.057 (-0.030, 0.132) | +0.111 (0.031, 0.196) | Improving |
-| eICU | **+0.019** (0.008, 0.029) | -0.006 (-0.015, 0.002) | +0.010 (0.003, 0.015) | +0.008 (-0.0005, 0.019) | Stable |
-| eICU-New | -0.003 (-0.010, 0.006) | -0.014 (-0.020, -0.008) | -0.008 (-0.014, -0.003) | -0.023 (-0.032, -0.016) | Declining |
+| Dataset | Period | SOFA Δ | OASIS Δ | SAPS-II Δ | APS-III Δ |
+|---------|--------|--------|---------|-----------|-----------|
+| MIMIC Combined | 2001-2022 | **+0.031*** | +0.006 | -0.002 | **+0.031*** |
+| eICU Combined | 2014-2021 | **+0.013*** | **-0.037*** | **-0.008*** | **-0.096*** |
+| Saltz | 2013-2021 | +0.034 | +0.049 | **+0.054*** | **+0.076*** |
+| Zhejiang | 2011-2022 | +0.050 | +0.049 | +0.057 | **+0.111*** |
 
-*MIMIC-III serves as historical baseline (2001-2008, single period - no drift analysis possible)*
-*SOFA available for all datasets. Δ = AUC change from first to last time period. Bold indicates significance (CI excludes 0).*
-
-### Subgroup-Specific OASIS Drift
-
-| Subgroup | MIMIC-IV | Saltz | Zhejiang | eICU | eICU-New |
-|----------|----------|-----------|----------|------|----------|
-| **Age 18-44** | +0.056 (-0.04, 0.14) | +0.059 (-0.19, 0.27) | -0.034 (-0.38, 0.28) | +0.001 (-0.03, 0.03) | **-0.023** (-0.05, -0.001) |
-| **Age 80+** | -0.035 (-0.09, 0.01) | +0.030 (-0.08, 0.15) | -0.004 (-0.19, 0.20) | **-0.016** (-0.03, -0.001) | +0.004 (-0.01, 0.02) |
-| **Male** | +0.026 (-0.003, 0.05) | +0.069 (-0.003, 0.14) | +0.030 (-0.09, 0.14) | -0.005 (-0.02, 0.004) | **-0.017** (-0.03, -0.009) |
-| **Female** | -0.007 (-0.04, 0.03) | +0.006 (-0.10, 0.10) | +0.082 (-0.06, 0.23) | -0.007 (-0.02, 0.004) | **-0.010** (-0.02, 0.001) |
-| **White** | +0.010 (-0.02, 0.04) | - | - | -0.005 (-0.01, 0.004) | **-0.015** (-0.02, -0.007) |
-| **Black** | +0.013 (-0.08, 0.09) | - | - | -0.019 (-0.05, 0.005) | -0.027 (-0.05, 0.004) |
-| **Hispanic** | - | - | - | -0.021 (-0.06, 0.01) | **-0.078** (-0.12, -0.04) |
-| **Asian** | +0.114 (-0.08, 0.31) | - | - | +0.046 (-0.02, 0.09) | **-0.040** (-0.09, -0.002) |
-
-*Bold indicates statistical significance (95% CI excludes 0).*
-
-### Subgroup-Specific SOFA Drift
-
-| Subgroup | MIMIC-IV | Saltz | Zhejiang | eICU | eICU-New |
-|----------|----------|-----------|----------|------|----------|
-| **Overall** | **+0.034** (0.009, 0.067) | +0.034 (-0.03, 0.10) | +0.050 (-0.04, 0.14) | **+0.019** (0.008, 0.029) | -0.003 (-0.01, 0.006) |
-| **Age 18-44** | **+0.110** (0.010, 0.21) | -0.039 (-0.32, 0.22) | -0.096 (-0.34, 0.18) | **+0.021** (-0.01, 0.06) | **-0.051** (-0.07, -0.03) |
-| **Age 80+** | +0.004 (-0.05, 0.06) | +0.034 (-0.08, 0.17) | +0.037 (-0.15, 0.25) | +0.015 (-0.008, 0.04) | **+0.023** (0.003, 0.04) |
-| **Male** | +0.030 (-0.0002, 0.07) | +0.041 (-0.06, 0.14) | +0.061 (-0.03, 0.18) | **+0.015** (0.0004, 0.03) | **-0.009** (-0.02, -0.001) |
-| **Female** | +0.038 (-0.006, 0.08) | +0.009 (-0.10, 0.11) | +0.004 (-0.13, 0.16) | **+0.023** (0.008, 0.04) | +0.006 (-0.006, 0.02) |
-| **White** | **+0.046** (0.004, 0.09) | - | - | **+0.017** (0.003, 0.03) | -0.003 (-0.01, 0.006) |
-| **Black** | +0.019 (-0.11, 0.11) | - | - | +0.013 (-0.02, 0.04) | -0.008 (-0.04, 0.02) |
-| **Hispanic** | - | - | - | +0.016 (-0.03, 0.07) | **-0.059** (-0.10, -0.02) |
-| **Asian** | +0.051 (-0.23, 0.32) | - | - | +0.087 (-0.00004, 0.18) | +0.007 (-0.04, 0.05) |
-
-*Bold indicates statistical significance (95% CI excludes 0).*
+*Δ = AUC change from first to last time period. Bold with * indicates significance (DeLong's test p < 0.05).*
+*Per-dataset detailed results available in `output/{dataset}/` directories.*
 
 ### Statistical Results Summary
 
-**Overall:** 79 of 206 subgroup-score comparisons (38.3%) showed statistically significant drift (DeLong's test, p < 0.05).
+**Summary by dataset:** Significant drift detected using DeLong's test (p < 0.05). Each dataset analyzed independently.
 
-| Dataset | Significant / Total | Rate | Interpretation |
-|---------|---------------------|------|----------------|
-| eICU-New | 40 / 55 | **72.7%** | COVID-era: widespread degradation |
-| MIMIC-IV | 14 / 40 | 35.0% | Moderate drift over 14 years |
-| eICU | 15 / 55 | 27.3% | Stable (2014-2015 only) |
-| Saltz | 5 / 28 | 17.9% | Mostly stable |
-| Zhejiang | 5 / 28 | 17.9% | Mostly stable |
+| Dataset | Period | Significant / Total | Key Pattern |
+|---------|--------|---------------------|-------------|
+| MIMIC Combined | 21 years | 15 / 40 (37.5%) | Improving, esp. Asian & young patients |
+| eICU Combined | 7 years | 43 / 55 (78.2%) | Widespread degradation |
+| Saltz | 9 years | 5 / 28 (17.9%) | Mostly stable |
+| Zhejiang | 11 years | 5 / 28 (17.9%) | Mostly stable |
 
-**Most Significant Improvements:**
-- MIMIC-IV Asian: +0.184 APS-III, +0.180 SAPS-II (p < 0.01)
-- Zhejiang Female: +0.158 APS-III (p < 0.01)
+---
 
-**Most Significant Declines:**
-- eICU-New Hispanic: **-0.078 OASIS**, -0.062 APACHE, -0.059 SOFA (all p < 0.01)
-- eICU-New Black: -0.058 APS-III (p < 0.001)
-- eICU-New Age 18-44: -0.051 SOFA (p < 0.001)
+## Main Figures (Per-Dataset Analysis)
 
-> **Key takeaway:** The COVID-era eICU-New dataset shows pervasive score degradation (73% of comparisons significant), with Hispanic and Black patients experiencing the largest declines. In contrast, long-term datasets (Saltz, Zhejiang) show mostly stable performance despite spanning 8-11 years.
+> **Note:** Each dataset is analyzed SEPARATELY. Main figures show subgroup drift within each dataset individually. Cross-dataset comparisons are in the [Supplementary Analysis](#supplementary-analysis) section at the end.
 
-### Key Finding: Drift Does Not Affect Patients Uniformly
+Each figure shows a comprehensive 4-panel analysis for one dataset:
+- **Panel A**: Age group drift
+- **Panel B**: Gender drift
+- **Panel C**: Race/ethnicity drift (if available) or Overall performance
+- **Panel D**: Subgroup delta summary with significance markers
 
-> **Core thesis:** Model drift affects demographic subgroups non-uniformly. This has critical implications for clinical decision-making and suggests that uniform recalibration strategies would fail to address subgroup-specific disparities.
+---
 
-#### Evidence of Non-Uniform Drift
+### Figure 1: MIMIC Combined (US, 2001-2022)
 
-**1. Age Group Divergence Across Regions**
+![MIMIC Combined](figures/fig1_mimic_combined.png)
+*Figure 1: MIMIC Combined - Non-uniform subgroup drift analysis over 21 years*
 
-Young and elderly patients experience opposite drift directions - and this pattern is consistent across countries:
+**Key Findings:**
+- Race=Asian (APS-III): **+0.148** (p=0.008) - significant improvement
+- Race=Asian (SAPS-II): **+0.129** (p=0.017) - significant improvement
+- Age=18-44 (APS-III): **+0.092** (p<0.001) - significant improvement
+- Age=18-44 (SOFA): **+0.080** (p=0.009) - significant improvement
+- Overall trend: Younger patients and Asian patients show strong improvements
 
-| Region | Dataset | Age 18-44 (SOFA) | Age 80+ (SOFA) | Pattern |
-|--------|---------|------------------|----------------|---------|
-| **US (Boston)** | MIMIC-IV | **+0.110** | +0.004 | Young improve far more |
-| **Europe (Netherlands)** | Saltz | -0.039 | +0.034 | Young decline, elderly improve |
-| **Asia (China)** | Zhejiang | **-0.096** | +0.037 | Young decline, elderly improve |
-| **US (Multi-center)** | eICU | +0.021 | +0.015 | Both improve similarly |
-| **US (COVID-era)** | eICU-New | -0.051 | +0.023 | Young decline, elderly improve |
+---
 
-*The age divergence pattern (young declining or stable while elderly improve) appears across US, European, and Asian datasets.*
+### Figure 2: eICU Combined (US, 2014-2021)
 
-**2. Racial/Ethnic Disparities (US Datasets)**
+![eICU Combined](figures/fig2_eicu_combined.png)
+*Figure 2: eICU Combined - Non-uniform subgroup drift analysis over 7 years*
 
-Hispanic patients show the most severe declines during the COVID era:
+**Key Findings:**
+- Race=Asian (SOFA): **+0.101** (p<0.001) - significant improvement
+- Age=80+ (SOFA): **+0.044** (p<0.001) - elderly improve
+- Gender=Female (SOFA): **+0.028** (p<0.001) - females improve
+- Most subgroups show degradation in APS-III scores
+- 78.2% of comparisons are statistically significant
 
-| Subgroup | eICU-New OASIS | eICU-New SOFA | Relative Impact |
-|----------|----------------|---------------|-----------------|
-| Hispanic | **-0.078** | **-0.059** | 5x worse than White |
-| Black | -0.027 | -0.008 | 2x worse than White |
-| White | -0.015 | -0.003 | Baseline |
-| Asian | -0.040 | +0.007 | Mixed |
+---
 
-**3. Gender Differences Vary by Region**
+### Figure 3: Saltz (Netherlands, 2013-2021)
 
-| Region | Dataset | Male (OASIS) | Female (OASIS) | Pattern |
-|--------|---------|--------------|----------------|---------|
-| Europe | Saltz | +0.069 | +0.006 | Males improve 10x more |
-| Asia | Zhejiang | +0.030 | +0.082 | Females improve 3x more |
-| US | MIMIC-IV | +0.026 | -0.007 | Males improve, females decline |
+![Saltz](figures/fig3_saltz.png)
+*Figure 3: Saltz (Netherlands) - Non-uniform subgroup drift analysis over 9 years*
 
-**4. COVID-19 Amplified Existing Disparities**
+**Key Findings:**
+- Age=45-64 (APS-III): **+0.133** (p=0.024) - significant improvement
+- Age=45-64 (SAPS-II): **+0.117** (p=0.047) - significant improvement
+- Gender=Male (APS-III): **+0.092** (p=0.009) - males improve significantly
+- Overall: Mostly stable with 17.9% significant comparisons
+- European dataset shows different patterns than US datasets
 
-Comparing eICU (2014-15) vs eICU-New (2020-21):
-- Overall scores declined modestly (-0.003 to -0.023)
-- Hispanic patients declined **dramatically** (-0.059 to -0.078)
-- This suggests the pandemic disproportionately degraded score performance for vulnerable groups
+---
 
-#### Clinical Implications
+### Figure 4: Zhejiang (China, 2011-2022)
+
+![Zhejiang](figures/fig4_zhejiang.png)
+*Figure 4: Zhejiang (China) - Non-uniform subgroup drift analysis over 11 years*
+
+**Key Findings:**
+- Gender=Female (APS-III): **+0.158** (p=0.007) - females improve significantly
+- Age=80+ (APS-III): **+0.141** (p=0.041) - elderly improve
+- Age=45-64 (SAPS-II): **+0.136** (p=0.043) - middle-aged improve
+- Overall: Mostly stable with 17.9% significant comparisons
+- Asian dataset shows unique gender patterns (females improve 3x more than males)
+
+---
+
+### Figure 5: Summary (Key Findings)
+
+![Summary Figure](figures/fig5_money_figure.png)
+*Figure 5: Multi-panel summary showing (A) Age group divergence, (B) Race disparities, (C) Comprehensive heatmap*
+
+---
+
+## Clinical Implications
 
 1. **Uniform recalibration is insufficient** - different subgroups need different adjustments
-2. **Vulnerable populations exist** - Hispanic and young patients in COVID-era data show worst degradation
-3. **Geographic context matters** - the same subgroup can experience opposite drift in different healthcare systems
-4. **Age-specific models may be needed** - the consistent age divergence pattern suggests fundamental differences in how scores perform across age groups
-
-### Figures
-
-#### Main Figures
-
-![Summary Figure](figures/fig7_money_figure.png)
-*Figure 7: Multi-panel summary - (A) Age group divergence, (B) Race disparities, (C) COVID impact, (D) Cross-dataset heatmap*
-
-![Overall Drift](figures/fig1_overall_drift_comparison.png)
-*Figure 1: Overall score performance trends across all datasets*
-
-![Age Stratified](figures/fig2_age_stratified_drift.png)
-*Figure 2: Age-stratified drift by dataset - showing divergent patterns between young and elderly*
-
-![Race Disparities](figures/fig3_race_disparities.png)
-*Figure 3: Race/ethnicity disparities in US datasets (MIMIC-IV, eICU, eICU-New)*
-
-![Delta Summary](figures/fig4_drift_delta_summary.png)
-*Figure 4: AUC change summary by subgroup across all datasets*
-
-![Heatmap](figures/fig5_comprehensive_heatmap.png)
-*Figure 5: Comprehensive drift heatmap showing all subgroups and scores*
-
-![COVID Comparison](figures/fig6_covid_era_comparison.png)
-*Figure 6: Pre-COVID (2014-15) vs COVID era (2020-21) comparison*
-
-#### Supplementary Figures (MIMIC-IV SOFA + Care Frequency)
-
-![MIMIC Mouthcare](figures/figS1_mimic_mouthcare.png)
-*Figure S1: MIMIC-IV Mouthcare cohort (N=8,675) - SOFA drift by age, race, gender, and care frequency*
-
-![MIMIC Mech Vent](figures/figS2_mimic_mechvent.png)
-*Figure S2: MIMIC-IV Mechanical Ventilation cohort (N=8,919) - SOFA drift by age, race, gender, and care frequency*
+2. **Geographic context matters** - the same subgroup can experience opposite drift in different healthcare systems
+3. **Age-specific models may be needed** - the consistent age divergence pattern suggests fundamental differences in how scores perform across age groups
 
 ---
 
@@ -257,26 +226,52 @@ Comparing eICU (2014-15) vs eICU-New (2020-21):
 ```
 Data-Drift/
 ├── code/
-│   ├── config.py                 # Dataset configurations
-│   ├── batch_analysis.py         # Multi-dataset drift analysis
+│   ├── config.py                 # Dataset configurations & constants
+│   ├── batch_analysis.py         # Multi-dataset drift analysis (main)
 │   ├── supplementary_analysis.py # SOFA + care frequency analysis
-│   └── generate_all_figures.py   # Figure generation
+│   ├── generate_all_figures.py   # Figure generation (fig1-5, figS1-S11)
+│   ├── merge_mimic.py            # Merge MIMIC-III + MIMIC-IV
+│   ├── merge_eicu.py             # Merge eICU-old + eICU-new
+│   └── tests/                    # Statistical method validation
+│       ├── test_bootstrap.py     # Bootstrap CI verification (5 tests)
+│       └── test_delong.py        # DeLong's test verification (7 tests)
 ├── data/
-│   ├── mimiciii/                 # MIMIC-III (27K patients, 2001-2008 baseline)
-│   ├── mimiciv/                  # MIMIC-IV (85K patients)
-│   ├── mimic/                    # MIMIC-IV subsets: mouthcare + mech. vent. (17K)
-│   ├── eicu/                     # eICU + eICU-New (661K patients)
+│   ├── mimic_iii/                # MIMIC-III (27K patients, 2001-2008)
+│   ├── mimic_iv_x/               # MIMIC-IV (85K patients, 2008-2022)
+│   ├── mimic_iv_lc/              # MIMIC-IV subsets: mouthcare + mech. vent. (17K)
+│   ├── mimic_combined/           # Merged MIMIC-III + MIMIC-IV (112K patients)
+│   ├── eicu/                     # eICU-old (290K) + eICU-new (372K)
+│   ├── eicu_combined/            # Merged eICU (661K patients)
 │   ├── saltz/                    # Saltz (27K patients)
 │   └── zhejiang/                 # Zhejiang Hospital, China (8K patients)
-├── figures/                      # Generated figures (fig1-7, figS1-S2)
-├── output/                       # Analysis results (CSV tables)
-├── run_all.sh                    # Reproducibility script
+├── docs/
+│   └── care_phenotypes.md        # Care phenotypes methodology documentation
+├── figures/                      # Main figures (fig1-5: per-dataset analysis)
+│   └── supplementary/            # Supplementary figures (figS1-S11)
+├── output/                       # Analysis results (per-dataset)
+│   ├── mimic_combined/           # MIMIC Combined results
+│   ├── eicu_combined/            # eICU Combined results
+│   ├── saltz/                    # Saltz results
+│   ├── zhejiang/                 # Zhejiang results
+│   ├── mimic_sofa_results.csv    # SOFA + care phenotype results
+│   └── mimic_sofa_deltas.csv     # SOFA + care phenotype deltas
+├── run_all.sh                    # Reproducibility script (Linux/macOS)
 └── requirements.txt              # Python dependencies
 ```
 
 ---
 
 ## Methodology
+
+### Analysis Approach: Per-Dataset Analysis
+
+> **Important:** Each dataset is analyzed **independently**. We do NOT make cross-dataset statistical comparisons (e.g., "MIMIC drift is greater than Saltz drift"). Instead, we:
+>
+> 1. Analyze drift within each dataset using its own temporal bins
+> 2. Report per-dataset results separately in `output/{dataset}/` directories
+> 3. Visually compare patterns across datasets to identify **consistent themes** (e.g., age divergence appears in multiple regions)
+>
+> This approach respects the fundamental differences between datasets (patient populations, healthcare systems, data collection methods) while allowing us to identify recurring patterns of non-uniform drift.
 
 ### Severity Scores Analyzed
 
@@ -290,18 +285,14 @@ Data-Drift/
 
 ### Score Availability by Dataset
 
-> **Note:** APACHE scores are only available in eICU datasets. APACHE is a proprietary scoring system primarily used in US multi-center ICU networks. MIMIC (Boston), Saltz (Netherlands), and Zhejiang (China) hospitals do not routinely compute APACHE scores in their EHR systems.
+> **Note:** APACHE scores are only available in eICU datasets. APACHE is a proprietary scoring system primarily used in US multi-center ICU networks.
 
 | Dataset | SOFA | OASIS | SAPS-II | APS-III | APACHE |
 |---------|:----:|:-----:|:-------:|:-------:|:------:|
-| MIMIC-III | ✓ | ✓ | ✓ | ✓ | ✗ |
-| MIMIC-IV | ✓ | ✓ | ✓ | ✓ | ✗ |
-| eICU | ✓ | ✓ | ✓ | ✓ | ✓ |
-| eICU-New | ✓ | ✓ | ✓ | ✓ | ✓ |
+| MIMIC Combined | ✓ | ✓ | ✓ | ✓ | ✗ |
+| eICU Combined | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Saltz | ✓ | ✓ | ✓ | ✓ | ✗ |
 | Zhejiang | ✓ | ✓ | ✓ | ✓ | ✗ |
-
-*Figures showing APACHE only display eICU and eICU-New data points.*
 
 ### Analysis Pipeline
 
@@ -330,51 +321,132 @@ DeLong's test answers: **"Is the observed AUC change real, or just random noise?
 
 | Finding | Δ AUC | p-value | Meaning |
 |---------|-------|---------|---------|
-| eICU-New Hispanic OASIS | -0.078 | <0.0001 | **Real decline** — nearly impossible this is chance |
-| MIMIC-IV Asian APS-III | +0.184 | 0.005 | **Real improvement** — only 0.5% chance this is random |
+| MIMIC Combined Asian APS-III | +0.148 | 0.008 | **Real improvement** — only 0.8% chance this is random |
 | Saltz Overall SOFA | +0.034 | 0.28 | **Not significant** — 28% chance this is just noise |
-
-> **Interpretation:** A *significant* drift (p < 0.05) indicates the change in AUC is unlikely due to chance. For clinical relevance, also consider the magnitude of drift (e.g., ΔAUC > 0.05 is often considered clinically meaningful).
 
 ---
 
 ## Outputs
 
-**Primary Analysis (batch_analysis.py):**
-| File | Description |
-|------|-------------|
-| `output/all_datasets_drift_results.csv` | Per-period AUC values with 95% CIs (`auc`, `auc_ci_lower`, `auc_ci_upper`) |
-| `output/all_datasets_drift_deltas.csv` | Drift deltas with 95% CIs (`delta`, `delta_ci_lower`, `delta_ci_upper`) - **CI data source** |
-| `output/table1_overall_drift.csv` | Overall drift by dataset and score |
-| `output/table2_oasis_subgroup_drift.csv` | OASIS drift by subgroup |
-| `output/table3_sample_sizes.csv` | Sample sizes |
+**Per-Dataset Results (batch_analysis.py):**
 
-> **Note on Statistical Testing:**
-> - **Bootstrap 95% CIs**: Computed via resampling (default: 100 iterations; production: 1000)
-> - **DeLong's test**: Compares AUC between first and last time periods (columns: `z_statistic`, `p_value_delong`)
-> - **Significance**: A drift is marked significant if `p_value_delong < 0.05` (column: `significant`)
-> - CI values stored in `all_datasets_drift_deltas.csv`: `delta_ci_lower`, `delta_ci_upper`
+Each dataset gets its own output directory with self-contained analysis results:
 
-**MIMIC-IV Subsets (supplementary_analysis.py):**
-| File | Description |
-|------|-------------|
-| `output/mimic_sofa_results.csv` | SOFA results with care frequency |
-| `output/mimic_sofa_deltas.csv` | SOFA drift deltas by subgroup |
+```
+output/{dataset}/
+├── drift_results.csv      # Per-period AUC values with 95% CIs
+├── drift_deltas.csv       # Drift deltas with p-values (DeLong's test)
+├── summary_by_score.csv   # Overall drift summary by score
+└── subgroup_drift.csv     # Subgroup-specific drift analysis
+```
+
+| Dataset Directory | Description |
+|-------------------|-------------|
+| `output/mimic_combined/` | MIMIC Combined (2001-2022) - 21-year continuous analysis |
+| `output/eicu_combined/` | eICU Combined (2014-2021) - 7-year temporal analysis |
+| `output/saltz/` | Saltz (2013-2021) - European dataset |
+| `output/zhejiang/` | Zhejiang (2011-2022) - Asian dataset |
 
 **Figures (generate_all_figures.py + supplementary_analysis.py):**
+
 | File | Description |
 |------|-------------|
-| `figures/fig1-7*.png` | Cross-dataset comparison (OASIS, SAPS-II, APS-III, SOFA) |
-| `figures/figS1-S2*.png` | MIMIC-IV SOFA + care frequency analysis |
+| `figures/fig1_mimic_combined.png` | MIMIC Combined per-dataset analysis |
+| `figures/fig2_eicu_combined.png` | eICU Combined per-dataset analysis |
+| `figures/fig3_saltz.png` | Saltz per-dataset analysis |
+| `figures/fig4_zhejiang.png` | Zhejiang per-dataset analysis |
+| `figures/fig5_money_figure.png` | Summary figure (key findings) |
+| `figures/supplementary/figS1-S11*.png` | Care phenotypes + cross-dataset comparisons |
 
 ---
 
+## Supplementary Analysis
+
+### Care Phenotypes: A Novel Proxy for Intersectional Demographics
+
+Care phenotypes represent a novel approach using **nursing care intensity patterns** as a proxy for unmeasured intersectional factors (socioeconomic status, insurance, language barriers). See [Care Phenotypes Documentation](docs/care_phenotypes.md) for details.
+
+**Key insight:** Patients with low care frequency (Q4) may represent a disadvantaged phenotype that experiences worse score calibration.
+
+---
+
+### Supplementary Figures
+
+#### MIMIC-IV SOFA + Care Phenotypes (S1-S2)
+
+![MIMIC Mouthcare](figures/supplementary/figS1_mimic_mouthcare.png)
+*Figure S1: MIMIC-IV Mouthcare cohort (N=8,675) - SOFA drift by age, race, gender, and care frequency*
+
+![MIMIC Mech Vent](figures/supplementary/figS2_mimic_mechvent.png)
+*Figure S2: MIMIC-IV Mechanical Ventilation cohort (N=8,919) - SOFA drift by age, race, gender, and care frequency*
+
+---
+
+#### Cross-Dataset Comparisons (S3-S11)
+
+> **Note:** The following figures show cross-dataset comparisons. While visually informative for identifying patterns, the main analysis focuses on per-dataset findings (Figures 1-4 above).
+
+![Overall Drift](figures/supplementary/figS3_overall_drift_comparison.png)
+*Figure S3: Overall score performance trends (cross-dataset comparison)*
+
+![Age Comparison](figures/supplementary/figS4_age_comparison.png)
+*Figure S4: Age-stratified drift comparison across all datasets*
+
+![Race Comparison](figures/supplementary/figS5_race_comparison.png)
+*Figure S5: Race/ethnicity disparities comparison across US datasets*
+
+![Significance Forest Plot](figures/supplementary/figS6_significance_forest_plot.png)
+*Figure S6: Forest plot of statistically significant drift findings (p < 0.05) with confidence intervals*
+
+![Gender Comparison](figures/supplementary/figS7_gender_comparison.png)
+*Figure S7: Gender-specific drift patterns across datasets*
+
+![Drift Delta Summary](figures/supplementary/figS8_drift_delta_summary.png)
+*Figure S8: Summary of drift deltas by subgroup type (cross-dataset)*
+
+![Comprehensive Heatmap](figures/supplementary/figS9_comprehensive_heatmap.png)
+*Figure S9: Comprehensive drift heatmap showing all datasets, subgroups, and scores*
+
+![Score Comparison by Age](figures/supplementary/figS10_score_comparison_by_age.png)
+*Figure S10: Drift patterns by age group across all severity scores*
+
+![Temporal Trajectories](figures/supplementary/figS11_temporal_trajectory.png)
+*Figure S11: Full temporal trajectories showing how subgroups diverge over multiple time periods*
+
+---
+
+#### COVID-19 Era Analysis (eICU Combined 2020-2021)
+
+> **Note:** This analysis is specific to eICU Combined which includes data from the COVID-19 pandemic period (2020-2021).
+
+**Racial/Ethnic Disparities during COVID-19 Era:**
+
+| Subgroup | OASIS Δ | SOFA Δ | APS-III Δ | APACHE Δ |
+|----------|---------|--------|-----------|----------|
+| Hispanic | **-0.117*** | **-0.039*** | **-0.104*** | **-0.092*** |
+| Black | **-0.069*** | -0.002 | **-0.125*** | **-0.030*** |
+| Asian | -0.022 | **+0.101*** | **-0.104*** | -0.021 |
+| White | **-0.027*** | **+0.012*** | **-0.091*** | **-0.045*** |
+
+*The COVID-era eICU data (2020-2021) shows pervasive score degradation (78% of comparisons significant), with Hispanic and Black patients experiencing the largest declines in several scores.*
+
+**Gender Differences during COVID-19 Era:**
+
+| Region | Dataset | Male (OASIS) | Female (OASIS) | Pattern |
+|--------|---------|--------------|----------------|---------|
+| Europe | Saltz | +0.069 | +0.006 | Males improve 10x more |
+| Asia | Zhejiang | +0.030 | +0.082 | Females improve 3x more |
+| US | MIMIC Combined | +0.017 | -0.006 | Males improve, females decline |
+| US | eICU Combined | **-0.038*** | **-0.034*** | Both decline significantly |
+
+
 ## Next Steps
+
 ### Immediate Priorities
 
 - [ ] **Calibration analysis**: Assess calibration drift (Brier score, calibration curves) alongside discrimination
 - [ ] **Intersectional analysis**: Examine combinations (e.g., elderly Hispanic patients) for compounded disparities
-- [ ] **COVID deep-dive**: Investigate why eICU-New shows 73% significant drift vs ~20% in other datasets
+- [ ] **Care phenotype expansion**: Apply care phenotype methodology to additional datasets and nursing interventions
 
 ### Extended Analysis
 

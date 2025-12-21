@@ -21,7 +21,7 @@ _OUTPUT_DIR = _BASE_DIR / 'output'
 DATASETS = {
     'mimic': {
         'name': 'MIMIC (Mechanical Ventilation)',
-        'data_path': str(_DATA_DIR / 'mimic'),
+        'data_path': str(_DATA_DIR / 'mimic_iv_lc'),
         'file': 'turning_interval_frequency.csv',
         'outcome_col': 'outcome',
         'outcome_positive': 'Deceased',  # Value indicating positive outcome (mortality)
@@ -45,7 +45,7 @@ DATASETS = {
 
     'mimic_mouthcare': {
         'name': 'MIMIC (Mouthcare Cohort)',
-        'data_path': str(_DATA_DIR / 'mimic'),
+        'data_path': str(_DATA_DIR / 'mimic_iv_lc'),
         'file': 'mouthcare_interval_frequency.csv',
         'outcome_col': 'outcome',
         'outcome_positive': 'Deceased',
@@ -70,6 +70,30 @@ DATASETS = {
     # ============================================================
     # NEW SALZ DATASETS (ML-Scores Bias Study)
     # ============================================================
+
+    'mimic_combined': {
+        'name': 'MIMIC Combined (2001-2022)',
+        'data_path': str(_DATA_DIR / 'mimic_combined'),
+        'file': 'mimic_combined_ml-scores_bias.csv',
+        'outcome_col': 'death_hosp',
+        'outcome_positive': 1,
+        'score_col': 'oasis',  # Primary score
+        'score_cols': ['sofa', 'oasis', 'sapsii', 'apsiii'],  # All available scores
+        'year_col': 'anchor_year_group',
+        'year_bins': ['2001 - 2008', '2008 - 2010', '2011 - 2013', '2014 - 2016', '2017 - 2019', '2020 - 2022'],
+        'demographic_cols': {
+            'race': 'ethnicity',
+            'gender': 'gender',
+            'age': 'age'
+        },
+        'clinical_cols': {
+            'los_icu': 'los_icu_day',
+            'los_hospital': 'los_hospital_day',
+            'source': 'source'  # mimic-iii or mimic-iv
+        },
+        'has_precomputed_sofa': True,
+        'description': 'MIMIC-III + MIMIC-IV combined (2001-2022) - 21 years continuous drift analysis'
+    },
 
     'mimiciii': {
         'name': 'MIMIC-III (2001-2008)',
@@ -117,6 +141,31 @@ DATASETS = {
         'description': 'MIMIC-IV ICU dataset (2008-2022) - 5 time bins'
     },
 
+    'eicu_combined': {
+        'name': 'eICU Combined (2014-2021)',
+        'data_path': str(_DATA_DIR / 'eicu_combined'),
+        'file': 'eicu_combined_ml-scores_bias.csv',
+        'outcome_col': 'hosp_mort',
+        'outcome_positive': 1,
+        'score_col': 'oasis',  # Primary score
+        'score_cols': ['sofa', 'oasis', 'sapsii', 'apsiii', 'apachescore'],  # All scores including SOFA
+        'year_col': 'hospitaldischargeyear',
+        'year_bins': [2014, 2015, 2020, 2021],  # 4 year bins for temporal analysis
+        'demographic_cols': {
+            'race': 'ethnicity',
+            'gender': 'gender',
+            'age': 'age'
+        },
+        'clinical_cols': {
+            'los_icu': 'los_icu_day',
+            'los_hospital': 'los_hosp_day',
+            'region': 'region',
+            'source': 'source'  # eicu-old or eicu-new
+        },
+        'has_precomputed_sofa': True,
+        'description': 'eICU-old + eICU-new combined (2014-2021) - 7 years temporal drift analysis'
+    },
+
     'eicu': {
         'name': 'eICU (2014-2015)',
         'data_path': str(_DATA_DIR / 'eicu'),
@@ -162,7 +211,7 @@ DATASETS = {
             'region': 'region'
         },
         'has_precomputed_sofa': True,
-        'description': 'eICU COVID-era dataset (2020-2021)'
+        'description': 'eICU dataset (2020-2021)'
     },
 
     'zhejiang': {

@@ -53,11 +53,13 @@ RANDOM_SEED = 42
 
 # Paths
 BASE_DIR = Path(__file__).parent.parent
-DATA_DIR = BASE_DIR / 'data' / 'mimic'
+DATA_DIR = BASE_DIR / 'data' / 'mimic_iv_lc'  # MIMIC-IV Long-term Care cohort data
 OUTPUT_DIR = BASE_DIR / 'output'
 FIGURES_DIR = BASE_DIR / 'figures'
+SUPPLEMENTARY_FIGURES_DIR = FIGURES_DIR / 'supplementary'
 OUTPUT_DIR.mkdir(exist_ok=True)
 FIGURES_DIR.mkdir(exist_ok=True)
+SUPPLEMENTARY_FIGURES_DIR.mkdir(exist_ok=True)
 
 # Age bins
 AGE_BINS = [18, 45, 65, 80, 150]
@@ -400,11 +402,11 @@ def generate_supplementary_figure(results_df, deltas_df, dataset_name, output_na
 
     plt.suptitle(f'{dataset_name} - SOFA Drift Analysis', fontsize=14, y=0.98)
 
-    # Save
-    output_path = FIGURES_DIR / output_name
+    # Save to supplementary figures folder
+    output_path = SUPPLEMENTARY_FIGURES_DIR / output_name
     fig.savefig(output_path, dpi=300, bbox_inches='tight')
     plt.close()
-    print(f"Saved: {output_name}")
+    print(f"Saved: supplementary/{output_name}")
 
     return output_path
 
@@ -482,7 +484,7 @@ def run_mimic_sofa_analysis():
         print("=" * 60)
         print(f"Results saved to: output/mimic_sofa_results.csv")
         print(f"Deltas saved to: output/mimic_sofa_deltas.csv")
-        print(f"Figures saved to: figures/figS1_mimic_mouthcare.png, figures/figS2_mimic_mechvent.png")
+        print(f"Figures saved to: figures/supplementary/figS1_mimic_mouthcare.png, figS2_mimic_mechvent.png")
 
         return combined_results, combined_deltas
 
