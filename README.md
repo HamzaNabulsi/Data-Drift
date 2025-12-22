@@ -160,6 +160,8 @@ Each figure shows a comprehensive 4-panel analysis for one dataset:
 - Race=Asian (SAPS-II): **+0.129** (p=0.017) - significant improvement
 - Age=18-44 (APS-III): **+0.092** (p<0.001) - significant improvement
 - Age=18-44 (SOFA): **+0.080** (p=0.009) - significant improvement
+- Age=18-44 (SAPS-II): **+0.067** (p=0.009) - significant improvement
+- Age=65-79 (SOFA): **+0.054** (p=0.003) - significant improvement
 - Overall trend: Younger patients and Asian patients show strong improvements
 
 ---
@@ -173,7 +175,9 @@ Each figure shows a comprehensive 4-panel analysis for one dataset:
 - Race=Asian (SOFA): **+0.101** (p<0.001) - significant improvement
 - Age=80+ (SOFA): **+0.044** (p<0.001) - elderly improve
 - Gender=Female (SOFA): **+0.028** (p<0.001) - females improve
-- Most subgroups show degradation in APS-III scores
+- Race=Hispanic (OASIS): **-0.117** (p<0.001) - severe degradation
+- Race=Black (OASIS): **-0.069** (p<0.001) - significant decline
+- Most subgroups show severe degradation in APS-III scores (all -0.06 to -0.12)
 - 78.2% of comparisons are statistically significant
 
 ---
@@ -187,7 +191,9 @@ Each figure shows a comprehensive 4-panel analysis for one dataset:
 - Age=45-64 (APS-III): **+0.133** (p=0.024) - significant improvement
 - Age=45-64 (SAPS-II): **+0.117** (p=0.047) - significant improvement
 - Gender=Male (APS-III): **+0.092** (p=0.009) - males improve significantly
-- Overall: Mostly stable with 17.9% significant comparisons
+- Overall APS-III: **+0.076** (p=0.005) - significant improvement
+- Overall SAPS-II: **+0.054** (p=0.048) - significant improvement
+- Overall: Mostly stable with 17.9% significant comparisons (5/28 tests)
 - European dataset shows different patterns than US datasets
 
 ---
@@ -201,8 +207,10 @@ Each figure shows a comprehensive 4-panel analysis for one dataset:
 - Gender=Female (APS-III): **+0.158** (p=0.007) - females improve significantly
 - Age=80+ (APS-III): **+0.141** (p=0.041) - elderly improve
 - Age=45-64 (SAPS-II): **+0.136** (p=0.043) - middle-aged improve
-- Overall: Mostly stable with 17.9% significant comparisons
-- Asian dataset shows unique gender patterns (females improve 3x more than males)
+- Gender=Male (APS-III): **+0.085** (p=0.035) - males improve moderately
+- Overall APS-III: **+0.111** (p<0.001) - significant improvement
+- Overall: Mostly stable with 17.9% significant comparisons (5/28 tests)
+- Asian dataset shows unique gender patterns (females improve 1.9x more than males in APS-III)
 
 ---
 

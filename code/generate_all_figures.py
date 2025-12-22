@@ -253,7 +253,10 @@ def create_per_dataset_figure(results, deltas, dataset_key, fig_num):
                     if has_ci and not age_df['auc_ci_lower'].isna().all():
                         ax_age.fill_between(x, age_df['auc_ci_lower'], age_df['auc_ci_upper'],
                                            color=color, alpha=0.15)
-            ax_age.set_xlabel('Time Period')
+            # Use actual year labels on x-axis
+            ax_age.set_xticks(range(n_periods))
+            ax_age.set_xticklabels(time_periods, rotation=45, ha='right', fontsize=8)
+            ax_age.set_xlabel('Year')
             ax_age.legend(title='Age Group', loc='best', fontsize=9)
         else:
             # Bar chart for single period
@@ -288,7 +291,10 @@ def create_per_dataset_figure(results, deltas, dataset_key, fig_num):
                     if has_ci and not gender_df['auc_ci_lower'].isna().all():
                         ax_gender.fill_between(x, gender_df['auc_ci_lower'], gender_df['auc_ci_upper'],
                                               color=color, alpha=0.15)
-            ax_gender.set_xlabel('Time Period')
+            # Use actual year labels on x-axis
+            ax_gender.set_xticks(range(n_periods))
+            ax_gender.set_xticklabels(time_periods, rotation=45, ha='right', fontsize=8)
+            ax_gender.set_xlabel('Year')
             ax_gender.legend(title='Gender', loc='best', fontsize=9)
         else:
             genders = ['Male', 'Female']
@@ -322,7 +328,10 @@ def create_per_dataset_figure(results, deltas, dataset_key, fig_num):
                     if has_ci and not race_df['auc_ci_lower'].isna().all():
                         ax_race.fill_between(x, race_df['auc_ci_lower'], race_df['auc_ci_upper'],
                                             color=color, alpha=0.15)
-            ax_race.set_xlabel('Time Period')
+            # Use actual year labels on x-axis
+            ax_race.set_xticks(range(n_periods))
+            ax_race.set_xticklabels(time_periods, rotation=45, ha='right', fontsize=8)
+            ax_race.set_xlabel('Year')
             ax_race.legend(title='Race/Ethnicity', loc='best', fontsize=9)
         else:
             races = ['White', 'Black', 'Hispanic', 'Asian']
@@ -345,7 +354,10 @@ def create_per_dataset_figure(results, deltas, dataset_key, fig_num):
             if has_ci and not overall_data['auc_ci_lower'].isna().all():
                 ax_race.fill_between(x, overall_data['auc_ci_lower'], overall_data['auc_ci_upper'],
                                     color='#666666', alpha=0.15)
-            ax_race.set_xlabel('Time Period')
+            # Use actual year labels on x-axis
+            ax_race.set_xticks(range(n_periods))
+            ax_race.set_xticklabels(time_periods, rotation=45, ha='right', fontsize=8)
+            ax_race.set_xlabel('Year')
         ax_race.set_ylabel(f'{primary_score.upper()} AUC')
         ax_race.set_title('C. Overall Performance' + (' (95% CI)' if has_ci else '') + ' (No race data)')
         ax_race.set_ylim(0.5, 1.0)
