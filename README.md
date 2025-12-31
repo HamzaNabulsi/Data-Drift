@@ -126,24 +126,24 @@ python code/batch_analysis.py -b 1000          # 1000 iterations
 *Δ = AUC change from first to last time period. Bold with * indicates significance (DeLong's test p < 0.05).*
 *Per-dataset detailed results available in `output/{dataset}/` directories.*
 
-### APS-III Subgroup Drift (Primary Metric)
+### SOFA Subgroup Drift (Primary Metric)
 
-APS-III shows the most consistent significant drift across all datasets and is used as the primary metric for subgroup analysis.
+SOFA (Sequential Organ Failure Assessment) is used as the primary metric for subgroup analysis due to its widespread clinical use and availability across all datasets.
 
-| Dataset | Subgroup Type | Most Affected Subgroup | APS-III Δ | Direction |
-|---------|---------------|------------------------|-----------|-----------|
-| **MIMIC Combined** | Age | 18-44 (Young) | **+0.058*** | Improving |
+| Dataset | Subgroup Type | Most Affected Subgroup | SOFA Δ | Direction |
+|---------|---------------|------------------------|--------|-----------|
+| **MIMIC Combined** | Age | 18-44 (Young) | **+0.080*** | Improving |
 | | Gender | Female | **+0.039*** | Improving |
-| | Race | Asian | **+0.078*** | Improving |
-| **eICU Combined** | Age | 80+ (Elderly) | **-0.112*** | Degrading |
-| | Gender | Male | **-0.098*** | Degrading |
-| | Race | Black | **-0.134*** | Degrading |
-| **Saltz** | Age | 65-79 | **+0.089*** | Improving |
-| | Gender | Female | **+0.082*** | Improving |
-| **Zhejiang** | Age | 45-64 | **+0.127*** | Improving |
-| | Gender | Male | **+0.104*** | Improving |
+| | Race | White | **+0.046*** | Improving |
+| **eICU Combined** | Age | 80+ (Elderly) | **+0.044*** | Improving |
+| | Gender | Female | **+0.028*** | Improving |
+| | Race | Hispanic | **-0.039*** | Degrading |
+| **Saltz** | Age | 45-64 | +0.057 | Stable |
+| | Gender | Male | +0.034 | Stable |
+| **Zhejiang** | Age | 80+ | +0.141 | Improving |
+| | Gender | Female | +0.058 | Stable |
 
-*APS-III = Acute Physiology Score III (vitals-based severity score). Selected as primary metric due to largest absolute drift values and statistical significance across all datasets.*
+*SOFA = Sequential Organ Failure Assessment. Selected as primary metric due to widespread clinical adoption and consistent availability across all ICU datasets.*
 
 ### Statistical Results Summary
 
@@ -516,7 +516,7 @@ Care phenotypes represent a novel approach using **nursing care intensity patter
 
 ## Comprehensive Results Tables (Paper Supplementary)
 
-### Table S1: Complete APS-III Drift Results by Subgroup
+### Table S1: Complete SOFA Drift Results by Subgroup
 
 | Dataset | Subgroup Type | Subgroup | AUC (First) | AUC (Last) | Δ AUC | p-value | Sig. |
 |---------|---------------|----------|-------------|------------|-------|---------|------|
@@ -582,20 +582,20 @@ Care phenotypes represent a novel approach using **nursing care intensity patter
 | **Time periods** | 6 | 4 | 9 | 4 |
 | **Mortality rate** | 10.5% | 10.9% | 8.2% | 16.8% |
 | **Significant tests (%)** | 37.5% | 78.2% | 17.9% | 17.9% |
-| **Primary drift direction** | Improving | Degrading | Stable | Stable |
-| **Most affected subgroup** | Asian (APS-III) | Black (APS-III) | 45-64 (APS-III) | 80+ (APS-III) |
-| **Largest Δ AUC** | +0.148 | -0.134 | +0.133 | +0.158 |
+| **Primary drift direction** | Improving | Mixed | Stable | Stable |
+| **Most affected subgroup** | 18-44 (SOFA) | 80+ (SOFA) | 45-64 (SOFA) | 80+ (SOFA) |
+| **Largest Δ AUC (SOFA)** | +0.080 | +0.044 | +0.057 | +0.141 |
 
 ### Table S4: Score Comparison - Overall Drift by Score Type
 
-| Dataset | SOFA Δ | OASIS Δ | SAPS-II Δ | APS-III Δ | Most Significant |
-|---------|--------|---------|-----------|-----------|------------------|
-| MIMIC Combined | +0.031* | +0.006 | -0.002 | +0.031* | SOFA, APS-III |
-| eICU Combined | +0.013* | -0.037* | -0.008* | -0.096* | APS-III |
-| Saltz | +0.034 | +0.049 | +0.054* | +0.076* | APS-III |
-| Zhejiang | +0.050 | +0.049 | +0.057 | +0.111* | APS-III |
+| Dataset | SOFA Δ | OASIS Δ | SAPS-II Δ | APS-III Δ | Primary (SOFA) |
+|---------|--------|---------|-----------|-----------|----------------|
+| MIMIC Combined | **+0.031*** | +0.006 | -0.002 | +0.031* | ✓ Significant |
+| eICU Combined | **+0.013*** | -0.037* | -0.008* | -0.096* | ✓ Significant |
+| Saltz | +0.034 | +0.049 | +0.054* | +0.076* | Not significant |
+| Zhejiang | +0.050 | +0.049 | +0.057 | +0.111* | Not significant |
 
-*Bold with * indicates significance (p < 0.05). APS-III shows most consistent significant drift across all datasets.*
+*Bold with * indicates significance (p < 0.05). SOFA used as primary metric due to widespread clinical adoption.*
 
 ---
 
