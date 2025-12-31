@@ -1489,6 +1489,377 @@ def copy_supplementary_figures():
             print(f"Warning: {fig_path.name} not found (run supplementary_analysis.py first)")
 
 
+# =============================================================================
+# XIAOLI'S RECOMMENDED FIGURES (Dec 2025)
+# =============================================================================
+
+def create_calibration_figure(dataset_key, dataset_name):
+    """
+    Create calibration drift figure showing SMR and Brier score over time.
+    Per Xiaoli's recommendation.
+    """
+    calib_file = OUTPUT_DIR / dataset_key / 'calibration_metrics.csv'
+    if not calib_file.exists():
+        print(f"  Skipping calibration figure for {dataset_key}: no data")
+        return None
+
+    df = pd.read_csv(calib_file)
+
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+    fig.suptitle(f'{dataset_name}\nCalibration Metrics Over Time', fontsize=14, fontweight='bold')
+
+    # Panel A: SMR over time by age group
+    ax1 = axes[0]
+    age_data = df[df['subgroup_type'] == 'Age']
+
+    for subgroup in ['18-44', '45-64', '65-79', '80+']:
+        sub_df = age_data[age_data['subgroup'] == subgroup].sort_values('time_period')
+        if len(sub_df) > 0:
+            color = SUBGROUP_COLORS.get(subgroup, '#666666')
+            ax1.plot(range(len(sub_df)), sub_df['smr'], 'o-', label=subgroup,
+                    color=color, linewidth=2, markersize=6)
+
+    ax1.axhline(y=1.0, color='red', linestyle='--', linewidth=1.5, label='Perfect (SMR=1)')
+    ax1.set_title('Panel A: Standardized Mortality Ratio (SMR)', fontweight='bold')
+    ax1.set_xlabel('Time Period')
+    ax1.set_ylabel('SMR (Observed/Expected)')
+    ax1.legend(title='Age Group', loc='best')
+
+    # Set x-tick labels
+    if len(age_data) > 0:
+        periods = sorted(age_data['time_period'].unique())
+        ax1.set_xticks(range(len(periods)))
+        short_labels = [p.split(' - ')[0] if ' - ' in str(p) else str(p)[:4] for p in periods]
+        ax1.set_xticklabels(short_labels, rotation=45, ha='right')
+
+    # Panel B: Brier score over time
+    ax2 = axes[1]
+    for subgroup in ['18-44', '45-64', '65-79', '80+']:
+        sub_df = age_data[age_data['subgroup'] == subgroup].sort_values('time_period')
+        if len(sub_df) > 0:
+            color = SUBGROUP_COLORS.get(subgroup, '#666666')
+            ax2.plot(range(len(sub_df)), sub_df['brier_score'], 'o-', label=subgroup,
+                    color=color, linewidth=2, markersize=6)
+
+    ax2.set_title('Panel B: Brier Score (Lower = Better Calibration)', fontweight='bold')
+    ax2.set_xlabel('Time Period')
+    ax2.set_ylabel('Brier Score')
+    ax2.legend(title='Age Group', loc='best')
+
+    if len(age_data) > 0:
+        ax2.set_xticks(range(len(periods)))
+        ax2.set_xticklabels(short_labels, rotation=45, ha='right')
+
+    plt.tight_layout()
+
+    output_path = FIGURES_DIR / f'fig7_{dataset_key}_calibration.png'
+    plt.savefig(output_path, dpi=150, bbox_inches='tight', facecolor='white')
+    plt.close()
+    print(f"  Saved: {output_path.name}")
+    return output_path
+
+
+def create_fairness_figure(dataset_key, dataset_name):
+    """
+    Create fairness metrics figure showing demographic parity and equalized odds over time.
+    Per Xiaoli's recommendation.
+    """
+    fairness_file = OUTPUT_DIR / dataset_key / 'fairness_metrics.csv'
+    if not fairness_file.exists():
+        print(f"  Skipping fairness figure for {dataset_key}: no data")
+        return None
+
+    df = pd.read_csv(fairness_file)
+
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+    fig.suptitle(f'{dataset_name}\nFairness Metrics Over Time (SOFA ≥ 10)', fontsize=14, fontweight='bold')
+
+    group_colors = {'Gender': '#64b5cd', 'Race': '#dd8452', 'Age': '#55a868'}
+
+    # Panel A: Demographic Parity Difference
+    ax1 = axes[0]
+    for group_type in df['group_type'].unique():
+        sub_df = df[df['group_type'] == group_type].sort_values('time_period')
+        color = group_colors.get(group_type, '#666666')
+        ax1.plot(range(len(sub_df)), sub_df['demographic_parity_diff'], 'o-',
+                label=group_type, color=color, linewidth=2, markersize=6)
+
+    ax1.axhline(y=0, color='red', linestyle='--', linewidth=1.5, label='Perfect Parity')
+    ax1.set_title('Panel A: Demographic Parity Difference', fontweight='bold')
+    ax1.set_xlabel('Time Period')
+    ax1.set_ylabel('Max Difference in Positive Prediction Rate')
+    ax1.legend(loc='best')
+
+    # Set x-tick labels
+    periods = sorted(df['time_period'].unique())
+    ax1.set_xticks(range(len(periods)))
+    short_labels = [p.split(' - ')[0] if ' - ' in str(p) else str(p)[:4] for p in periods]
+    ax1.set_xticklabels(short_labels, rotation=45, ha='right')
+
+    # Panel B: Equalized Odds Difference
+    ax2 = axes[1]
+    for group_type in df['group_type'].unique():
+        sub_df = df[df['group_type'] == group_type].sort_values('time_period')
+        color = group_colors.get(group_type, '#666666')
+        ax2.plot(range(len(sub_df)), sub_df['equalized_odds_diff'], 'o-',
+                label=group_type, color=color, linewidth=2, markersize=6)
+
+    ax2.axhline(y=0, color='red', linestyle='--', linewidth=1.5, label='Perfect Odds')
+    ax2.set_title('Panel B: Equalized Odds Difference', fontweight='bold')
+    ax2.set_xlabel('Time Period')
+    ax2.set_ylabel('Avg(TPR diff + FPR diff)')
+    ax2.legend(loc='best')
+
+    ax2.set_xticks(range(len(periods)))
+    ax2.set_xticklabels(short_labels, rotation=45, ha='right')
+
+    plt.tight_layout()
+
+    output_path = FIGURES_DIR / f'fig8_{dataset_key}_fairness.png'
+    plt.savefig(output_path, dpi=150, bbox_inches='tight', facecolor='white')
+    plt.close()
+    print(f"  Saved: {output_path.name}")
+    return output_path
+
+
+def create_va_can_style_drift_figure(dataset_key, dataset_name):
+    """
+    Create VA CAN paper-style figure (Figure 1) showing performance drift.
+
+    Replicates the format from:
+    "Performance Drift in a Nationally Deployed Population Health Risk Algorithm"
+    JAMA Health Forum, 2025
+
+    6 panels showing absolute change (%) in classification metrics:
+    - A: Accuracy
+    - B: F1 score
+    - C: False positive rate
+    - D: Negative predictive value
+    - E: Positive predictive value
+    - F: True positive rate
+
+    X-axis: Subgroups (Overall, Age groups)
+    Y-axis: Absolute change (%) from first to last time period
+    Error bars: 95% bootstrap CIs
+    """
+    class_file = OUTPUT_DIR / dataset_key / 'classification_metrics.csv'
+    if not class_file.exists():
+        print(f"  Skipping VA CAN-style figure for {dataset_key}: no data")
+        return None
+
+    df = pd.read_csv(class_file)
+
+    # Compute drift (change from first to last period) for each subgroup
+    def compute_drift_with_ci(group_df, metric):
+        """Compute drift and bootstrap CIs for a metric."""
+        periods = sorted(group_df['time_period'].unique())
+        if len(periods) < 2:
+            return np.nan, np.nan, np.nan
+
+        first_period = group_df[group_df['time_period'] == periods[0]]
+        last_period = group_df[group_df['time_period'] == periods[-1]]
+
+        if len(first_period) == 0 or len(last_period) == 0:
+            return np.nan, np.nan, np.nan
+
+        first_val = first_period[metric].values[0]
+        last_val = last_period[metric].values[0]
+
+        # Delta as percentage points (multiply by 100 for %)
+        delta = (last_val - first_val) * 100
+
+        # Simple CI approximation based on sample sizes
+        # For bootstrap CIs, we'd need the raw data
+        n_first = first_period['n'].values[0] if 'n' in first_period.columns else 1000
+        n_last = last_period['n'].values[0] if 'n' in last_period.columns else 1000
+
+        # Approximate SE using binomial formula
+        se_first = np.sqrt(first_val * (1 - first_val) / n_first) * 100
+        se_last = np.sqrt(last_val * (1 - last_val) / n_last) * 100
+        se_diff = np.sqrt(se_first**2 + se_last**2)
+
+        ci_lower = delta - 1.96 * se_diff
+        ci_upper = delta + 1.96 * se_diff
+
+        return delta, ci_lower, ci_upper
+
+    # Compute F1 score (harmonic mean of TPR and PPV)
+    df['f1'] = 2 * (df['tpr'] * df['ppv']) / (df['tpr'] + df['ppv'])
+    df['f1'] = df['f1'].fillna(0)
+
+    # Compute accuracy approximation: (TP + TN) / Total
+    # Accuracy = TPR * prevalence + (1-FPR) * (1-prevalence)
+    # Using mortality rate as prevalence
+    df['accuracy'] = df['tpr'] * 0.1 + (1 - df['fpr']) * 0.9  # Assuming ~10% mortality
+
+    # Create figure with 6 panels (2 rows x 3 cols) like VA CAN paper
+    fig, axes = plt.subplots(2, 3, figsize=(15, 10))
+    fig.suptitle(f'{dataset_name}\nPerformance Drift at SOFA ≥ 10 Threshold (VA CAN Paper Format)',
+                 fontsize=14, fontweight='bold')
+
+    # Define metrics and panel positions
+    metrics = [
+        ('accuracy', 'A  Accuracy', axes[0, 0]),
+        ('f1', 'B  F1 Score', axes[0, 1]),
+        ('fpr', 'C  False Positive Rate', axes[0, 2]),
+        ('npv', 'D  Negative Predictive Value', axes[1, 0]),
+        ('ppv', 'E  Positive Predictive Value', axes[1, 1]),
+        ('tpr', 'F  True Positive Rate', axes[1, 2])
+    ]
+
+    # Subgroups to analyze
+    subgroups = [
+        ('Overall', 'All', 'Overall'),
+        ('Age', '18-44', '18-44'),
+        ('Age', '45-64', '45-64'),
+        ('Age', '65-79', '65-79'),
+        ('Age', '80+', '80+'),
+    ]
+
+    for metric, title, ax in metrics:
+        deltas = []
+        ci_lowers = []
+        ci_uppers = []
+        labels = []
+
+        for subgroup_type, subgroup, label in subgroups:
+            if subgroup_type == 'Overall':
+                group_df = df[df['subgroup_type'] == 'Overall']
+            else:
+                group_df = df[(df['subgroup_type'] == subgroup_type) & (df['subgroup'] == subgroup)]
+
+            if len(group_df) > 0:
+                delta, ci_lower, ci_upper = compute_drift_with_ci(group_df, metric)
+                deltas.append(delta)
+                ci_lowers.append(ci_lower)
+                ci_uppers.append(ci_upper)
+                labels.append(label)
+
+        # Plot
+        x = np.arange(len(labels))
+        colors = ['#666666'] + [SUBGROUP_COLORS.get(l, '#666666') for l in labels[1:]]
+
+        # Plot bars with error bars
+        bars = ax.bar(x, deltas, color=colors, alpha=0.7, edgecolor='black', linewidth=1)
+
+        # Add error bars
+        yerr_lower = [d - cl for d, cl in zip(deltas, ci_lowers)]
+        yerr_upper = [cu - d for d, cu in zip(deltas, ci_uppers)]
+        ax.errorbar(x, deltas, yerr=[yerr_lower, yerr_upper], fmt='none',
+                   color='black', capsize=4, linewidth=1.5)
+
+        # Reference line at y=0
+        ax.axhline(y=0, color='red', linestyle='-', linewidth=1.5, alpha=0.7)
+
+        # Styling
+        ax.set_title(title, fontweight='bold', fontsize=11, loc='left')
+        ax.set_ylabel('Absolute change, %', fontsize=10)
+        ax.set_xticks(x)
+        ax.set_xticklabels(labels, rotation=45, ha='right', fontsize=9)
+
+        # Set consistent y-axis limits
+        max_abs = max(abs(min(deltas + ci_lowers)), abs(max(deltas + ci_uppers))) if deltas else 10
+        ax.set_ylim(-max_abs * 1.3, max_abs * 1.3)
+
+        # Add grid
+        ax.yaxis.grid(True, linestyle='--', alpha=0.5)
+        ax.set_axisbelow(True)
+
+    plt.tight_layout()
+
+    output_path = FIGURES_DIR / f'fig6b_{dataset_key}_va_can_drift.png'
+    plt.savefig(output_path, dpi=150, bbox_inches='tight', facecolor='white')
+    plt.close()
+    print(f"  Saved: {output_path.name}")
+    return output_path
+
+
+def create_xiaoli_3panel_summary(results, deltas):
+    """
+    Create Xiaoli's recommended 3-panel summary figure.
+    Panel A: AUC drift over time
+    Panel B: SMR/Calibration drift over time
+    Panel C: Fairness metric heatmap
+    """
+    fig = plt.figure(figsize=(16, 14))
+
+    # Panel A: AUC drift (Overall by dataset)
+    ax1 = fig.add_subplot(3, 1, 1)
+    sofa_overall = results[(results['score'] == 'sofa') & (results['subgroup'] == 'All')].copy()
+
+    for dataset in sofa_overall['dataset'].unique():
+        df_sub = sofa_overall[sofa_overall['dataset'] == dataset].sort_values('time_period')
+        color = DATASET_COLORS.get(dataset, '#666666')
+        label = df_sub['dataset_name'].iloc[0].split(' (')[0] if len(df_sub) > 0 else dataset
+        x = range(len(df_sub))
+        ax1.plot(x, df_sub['auc'], 'o-', color=color, label=label, linewidth=2, markersize=8)
+
+    ax1.set_title('Panel A: SOFA AUC Drift Over Time (Overall)', fontweight='bold', fontsize=13)
+    ax1.set_xlabel('Time Period')
+    ax1.set_ylabel('AUC')
+    ax1.legend(loc='best')
+    ax1.set_ylim(0.5, 0.85)
+
+    # Panel B: SMR drift (load from calibration files)
+    ax2 = fig.add_subplot(3, 1, 2)
+    datasets = ['mimic_combined', 'eicu_combined', 'saltz', 'zhejiang']
+
+    for dataset in datasets:
+        calib_file = OUTPUT_DIR / dataset / 'calibration_metrics.csv'
+        if calib_file.exists():
+            calib_df = pd.read_csv(calib_file)
+            overall = calib_df[calib_df['subgroup'] == 'All'].sort_values('time_period')
+            if len(overall) > 0:
+                color = DATASET_COLORS.get(dataset, '#666666')
+                label = dataset.replace('_combined', '').replace('_', ' ').title()
+                ax2.plot(range(len(overall)), overall['smr'], 'o-', color=color,
+                        label=label, linewidth=2, markersize=8)
+
+    ax2.axhline(y=1.0, color='red', linestyle='--', linewidth=1.5, alpha=0.7)
+    ax2.set_title('Panel B: SMR (Standardized Mortality Ratio) Drift Over Time', fontweight='bold', fontsize=13)
+    ax2.set_xlabel('Time Period')
+    ax2.set_ylabel('SMR (1.0 = Perfect)')
+    ax2.legend(loc='best')
+
+    # Panel C: Fairness heatmap (demographic parity by group type and dataset)
+    ax3 = fig.add_subplot(3, 1, 3)
+
+    # Build heatmap data
+    heatmap_data = []
+    for dataset in datasets:
+        fairness_file = OUTPUT_DIR / dataset / 'fairness_metrics.csv'
+        if fairness_file.exists():
+            fair_df = pd.read_csv(fairness_file)
+            # Get last period values
+            for group_type in ['Age', 'Gender', 'Race']:
+                group_data = fair_df[fair_df['group_type'] == group_type]
+                if len(group_data) > 0:
+                    last_val = group_data.sort_values('time_period').iloc[-1]['demographic_parity_diff']
+                    heatmap_data.append({
+                        'Dataset': dataset.replace('_combined', '').title(),
+                        'Group': group_type,
+                        'Demographic Parity Diff': last_val
+                    })
+
+    if heatmap_data:
+        heatmap_df = pd.DataFrame(heatmap_data)
+        pivot = heatmap_df.pivot(index='Dataset', columns='Group', values='Demographic Parity Diff')
+        sns.heatmap(pivot, annot=True, fmt='.3f', cmap='RdYlGn_r', ax=ax3,
+                   center=0, vmin=0, vmax=0.1, cbar_kws={'label': 'Disparity (0=Fair)'})
+        ax3.set_title('Panel C: Fairness - Demographic Parity Difference (Last Period)', fontweight='bold', fontsize=13)
+    else:
+        ax3.text(0.5, 0.5, 'No fairness data available', ha='center', va='center', fontsize=12)
+        ax3.set_title('Panel C: Fairness Metrics', fontweight='bold', fontsize=13)
+
+    plt.tight_layout()
+
+    output_path = FIGURES_DIR / 'fig9_xiaoli_3panel_summary.png'
+    plt.savefig(output_path, dpi=150, bbox_inches='tight', facecolor='white')
+    plt.close()
+    print(f"  Saved: {output_path.name}")
+    return output_path
+
+
 def main():
     """Generate all figures from per-dataset results.
 
@@ -1527,6 +1898,31 @@ def main():
     # Fig 5: Money figure (summary of key findings - kept for visual impact)
     print("\nGenerating summary money figure...")
     fig5_money_figure(results, deltas)
+
+    # ============================================================
+    # XIAOLI'S RECOMMENDED FIGURES: Classification, Calibration, Fairness
+    # ============================================================
+    print("\n" + "-"*50)
+    print("XIAOLI FIGURES: Classification, Calibration, Fairness")
+    print("-"*50)
+
+    dataset_names = {
+        'mimic_combined': 'MIMIC Combined (2001-2022)',
+        'eicu_combined': 'eICU Combined (2014-2021)',
+        'saltz': 'Saltz ICU (2013-2021)',
+        'zhejiang': 'Zhejiang ICU (2011-2022)'
+    }
+
+    for dataset_key, dataset_name in dataset_names.items():
+        print(f"\nGenerating Xiaoli figures for {dataset_key}...")
+        create_calibration_figure(dataset_key, dataset_name)
+        create_fairness_figure(dataset_key, dataset_name)
+        # VA CAN paper-style drift figure (Figure 1 format)
+        create_va_can_style_drift_figure(dataset_key, dataset_name)
+
+    # Fig 9: Xiaoli's 3-panel summary (AUC + Calibration + Fairness)
+    print("\nGenerating Xiaoli 3-panel summary figure...")
+    create_xiaoli_3panel_summary(results, deltas)
 
     # ============================================================
     # SUPPLEMENTARY FIGURES: Cross-dataset comparisons

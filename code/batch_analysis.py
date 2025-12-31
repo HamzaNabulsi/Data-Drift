@@ -23,10 +23,13 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 from config import DATASETS, OUTPUT_PATH as OUTPUT_DIR
-from sklearn.metrics import roc_auc_score
+from sklearn.metrics import roc_auc_score, brier_score_loss, confusion_matrix
 from scipy import stats
 import warnings
 warnings.filterwarnings('ignore')
+
+# SOFA threshold for binary classification (JAMA 2001: SOFA>=10 ~ 40% mortality)
+SOFA_THRESHOLD = 10
 
 # =============================================================================
 # BOOTSTRAP CONFIGURATION
@@ -198,6 +201,171 @@ def compute_auc_with_ci(y_true, y_pred, n_bootstrap=N_BOOTSTRAP, ci_level=CI_LEV
 
     except Exception as e:
         return np.nan, np.nan, np.nan
+
+
+# =============================================================================
+# XIAOLI'S RECOMMENDED METRICS (Dec 2025)
+# =============================================================================
+
+def compute_classification_metrics(y_true, y_pred, threshold=SOFA_THRESHOLD):
+    """
+    Compute classification metrics at SOFA >= threshold (default 10).
+
+    Per Xiaoli's recommendation (JAMA 2001): SOFA >= 10 correlates with ~40% mortality.
+
+    Returns:
+        dict: TPR (sensitivity), FPR, PPV (precision), NPV, or NaNs if computation fails
+    """
+    try:
+        y_true = np.array(y_true)
+        y_pred = np.array(y_pred)
+
+        # Handle missing values
+        mask = ~np.isnan(y_pred) & ~np.isnan(y_true)
+        y_true = y_true[mask]
+        y_pred = y_pred[mask]
+
+        if len(y_true) < 30 or len(np.unique(y_true)) < 2:
+            return {'tpr': np.nan, 'fpr': np.nan, 'ppv': np.nan, 'npv': np.nan}
+
+        # Binary prediction at threshold
+        y_pred_binary = (y_pred >= threshold).astype(int)
+
+        # Confusion matrix: TN, FP, FN, TP
+        tn, fp, fn, tp = confusion_matrix(y_true, y_pred_binary, labels=[0, 1]).ravel()
+
+        # Calculate metrics
+        tpr = tp / (tp + fn) if (tp + fn) > 0 else np.nan  # Sensitivity / Recall
+        fpr = fp / (fp + tn) if (fp + tn) > 0 else np.nan  # False Positive Rate
+        ppv = tp / (tp + fp) if (tp + fp) > 0 else np.nan  # Precision / PPV
+        npv = tn / (tn + fn) if (tn + fn) > 0 else np.nan  # Negative Predictive Value
+
+        return {'tpr': tpr, 'fpr': fpr, 'ppv': ppv, 'npv': npv}
+
+    except Exception as e:
+        return {'tpr': np.nan, 'fpr': np.nan, 'ppv': np.nan, 'npv': np.nan}
+
+
+def compute_calibration_metrics(y_true, y_pred, score_max=24):
+    """
+    Compute calibration metrics for severity scores.
+
+    Args:
+        y_true: Binary outcome (0/1)
+        y_pred: Severity score (e.g., SOFA 0-24)
+        score_max: Maximum score value for normalization
+
+    Returns:
+        dict: Brier score, SMR (Standardized Mortality Ratio), expected mortality
+    """
+    try:
+        y_true = np.array(y_true)
+        y_pred = np.array(y_pred)
+
+        # Handle missing values
+        mask = ~np.isnan(y_pred) & ~np.isnan(y_true)
+        y_true = y_true[mask]
+        y_pred = y_pred[mask]
+
+        if len(y_true) < 30:
+            return {'brier_score': np.nan, 'smr': np.nan, 'expected_mortality': np.nan, 'observed_mortality': np.nan}
+
+        # Normalize score to probability (simple linear scaling)
+        # SOFA: 0-24 scale, approximate mortality probability
+        y_pred_prob = np.clip(y_pred / score_max, 0, 1)
+
+        # Brier score (lower is better, 0 = perfect)
+        brier = brier_score_loss(y_true, y_pred_prob)
+
+        # SMR: Observed / Expected deaths
+        observed_deaths = y_true.sum()
+        expected_deaths = y_pred_prob.sum()
+        smr = observed_deaths / expected_deaths if expected_deaths > 0 else np.nan
+
+        observed_mortality = y_true.mean()
+        expected_mortality = y_pred_prob.mean()
+
+        return {
+            'brier_score': brier,
+            'smr': smr,
+            'expected_mortality': expected_mortality,
+            'observed_mortality': observed_mortality
+        }
+
+    except Exception as e:
+        return {'brier_score': np.nan, 'smr': np.nan, 'expected_mortality': np.nan, 'observed_mortality': np.nan}
+
+
+def compute_fairness_metrics(df, score_col, outcome_col, group_col, threshold=SOFA_THRESHOLD):
+    """
+    Compute fairness metrics across demographic groups.
+
+    Args:
+        df: DataFrame with patient data
+        score_col: Severity score column
+        outcome_col: Binary outcome column
+        group_col: Demographic grouping column (e.g., 'race_std', 'gender_std')
+        threshold: SOFA threshold for binary classification
+
+    Returns:
+        dict: Demographic parity difference, equalized odds difference, group-wise TPR/FPR
+    """
+    try:
+        groups = df[group_col].dropna().unique()
+        if len(groups) < 2:
+            return {'demographic_parity_diff': np.nan, 'equalized_odds_diff': np.nan, 'group_metrics': {}}
+
+        group_metrics = {}
+        positive_rates = []
+        tprs = []
+        fprs = []
+
+        for group in groups:
+            subset = df[df[group_col] == group].dropna(subset=[score_col, outcome_col])
+            if len(subset) < 30:
+                continue
+
+            y_true = subset[outcome_col].values
+            y_pred = subset[score_col].values
+            y_pred_binary = (y_pred >= threshold).astype(int)
+
+            # Positive prediction rate (for demographic parity)
+            pos_rate = y_pred_binary.mean()
+            positive_rates.append(pos_rate)
+
+            # TPR and FPR (for equalized odds)
+            if len(np.unique(y_true)) == 2:
+                tn, fp, fn, tp = confusion_matrix(y_true, y_pred_binary, labels=[0, 1]).ravel()
+                tpr = tp / (tp + fn) if (tp + fn) > 0 else np.nan
+                fpr = fp / (fp + tn) if (fp + tn) > 0 else np.nan
+                tprs.append(tpr)
+                fprs.append(fpr)
+
+            group_metrics[group] = {
+                'n': len(subset),
+                'positive_rate': pos_rate,
+                'tpr': tpr if len(np.unique(y_true)) == 2 else np.nan,
+                'fpr': fpr if len(np.unique(y_true)) == 2 else np.nan
+            }
+
+        # Demographic parity: max difference in positive prediction rates
+        demographic_parity_diff = max(positive_rates) - min(positive_rates) if len(positive_rates) >= 2 else np.nan
+
+        # Equalized odds: max difference in TPR + max difference in FPR
+        tpr_diff = max(tprs) - min(tprs) if len(tprs) >= 2 else np.nan
+        fpr_diff = max(fprs) - min(fprs) if len(fprs) >= 2 else np.nan
+        equalized_odds_diff = (tpr_diff + fpr_diff) / 2 if not np.isnan(tpr_diff) else np.nan
+
+        return {
+            'demographic_parity_diff': demographic_parity_diff,
+            'equalized_odds_diff': equalized_odds_diff,
+            'tpr_diff': tpr_diff,
+            'fpr_diff': fpr_diff,
+            'group_metrics': group_metrics
+        }
+
+    except Exception as e:
+        return {'demographic_parity_diff': np.nan, 'equalized_odds_diff': np.nan, 'group_metrics': {}}
 
 
 def delong_test(y_true1, y_pred1, y_true2, y_pred2):
@@ -431,6 +599,153 @@ def analyze_drift(df, config, score_col, compute_ci=True):
                             _compute_and_append(subset, 'Intersectional', subgroup_label, period)
 
     return pd.DataFrame(results)
+
+
+def analyze_xiaoli_metrics(df, config, score_col='sofa'):
+    """
+    Analyze Xiaoli's recommended metrics: classification at SOFA>=10, calibration, fairness.
+
+    This implements the Dec 2025 recommendations:
+    1. SOFA >= 10 threshold classification (TPR, FPR, PPV, NPV)
+    2. Calibration metrics (Brier score, SMR)
+    3. Fairness metrics (demographic parity, equalized odds)
+
+    Args:
+        df: DataFrame with patient data
+        config: Dataset configuration
+        score_col: Score column (default 'sofa')
+
+    Returns:
+        tuple: (classification_results_df, calibration_results_df, fairness_results_df)
+    """
+    classification_results = []
+    calibration_results = []
+    fairness_results = []
+
+    year_col = config['year_col']
+    outcome_col = config['outcome_col']
+    outcome_positive = config['outcome_positive']
+
+    # Create binary outcome
+    if 'outcome_binary' not in df.columns:
+        df['outcome_binary'] = (df[outcome_col] == outcome_positive).astype(int)
+
+    # Check if score column exists
+    if score_col not in df.columns:
+        print(f"  WARNING: Score column '{score_col}' not found, skipping Xiaoli metrics")
+        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+
+    time_periods = sorted(df[year_col].dropna().unique())
+    print(f"  Computing Xiaoli metrics (SOFA>={SOFA_THRESHOLD} threshold)...")
+
+    def _compute_metrics_for_subset(subset, subgroup_type, subgroup, period):
+        """Helper to compute all Xiaoli metrics for a subset."""
+        if len(subset) < 30:
+            return
+
+        y_true = subset['outcome_binary'].values
+        y_pred = subset[score_col].values
+
+        # 1. Classification metrics at SOFA >= 10
+        class_metrics = compute_classification_metrics(y_true, y_pred, threshold=SOFA_THRESHOLD)
+        classification_results.append({
+            'subgroup_type': subgroup_type,
+            'subgroup': subgroup,
+            'time_period': str(period),
+            'threshold': SOFA_THRESHOLD,
+            'tpr': class_metrics['tpr'],
+            'fpr': class_metrics['fpr'],
+            'ppv': class_metrics['ppv'],
+            'npv': class_metrics['npv'],
+            'n': len(subset),
+            'n_deaths': int(subset['outcome_binary'].sum()),
+            'n_high_score': int((subset[score_col] >= SOFA_THRESHOLD).sum())
+        })
+
+        # 2. Calibration metrics
+        calib_metrics = compute_calibration_metrics(y_true, y_pred, score_max=24)
+        calibration_results.append({
+            'subgroup_type': subgroup_type,
+            'subgroup': subgroup,
+            'time_period': str(period),
+            'brier_score': calib_metrics['brier_score'],
+            'smr': calib_metrics['smr'],
+            'expected_mortality': calib_metrics['expected_mortality'],
+            'observed_mortality': calib_metrics['observed_mortality'],
+            'n': len(subset)
+        })
+
+    # Overall metrics by time period
+    for period in time_periods:
+        subset = df[df[year_col] == period]
+        _compute_metrics_for_subset(subset, 'Overall', 'All', period)
+
+    # Age group analysis
+    if 'age_group' in df.columns:
+        for age_group in AGE_LABELS:
+            for period in time_periods:
+                subset = df[(df['age_group'] == age_group) & (df[year_col] == period)]
+                _compute_metrics_for_subset(subset, 'Age', age_group, period)
+
+    # Gender analysis
+    if 'gender_std' in df.columns:
+        for gender in ['Male', 'Female']:
+            for period in time_periods:
+                subset = df[(df['gender_std'] == gender) & (df[year_col] == period)]
+                _compute_metrics_for_subset(subset, 'Gender', gender, period)
+
+    # Race analysis
+    if 'race_std' in df.columns:
+        for race in ['White', 'Black', 'Hispanic', 'Asian']:
+            for period in time_periods:
+                subset = df[(df['race_std'] == race) & (df[year_col] == period)]
+                _compute_metrics_for_subset(subset, 'Race', race, period)
+
+    # 3. Fairness metrics per time period
+    for period in time_periods:
+        period_df = df[df[year_col] == period]
+
+        # Fairness by gender
+        if 'gender_std' in period_df.columns:
+            gender_fairness = compute_fairness_metrics(period_df, score_col, 'outcome_binary', 'gender_std')
+            fairness_results.append({
+                'time_period': str(period),
+                'group_type': 'Gender',
+                'demographic_parity_diff': gender_fairness['demographic_parity_diff'],
+                'equalized_odds_diff': gender_fairness['equalized_odds_diff'],
+                'tpr_diff': gender_fairness['tpr_diff'],
+                'fpr_diff': gender_fairness['fpr_diff']
+            })
+
+        # Fairness by race
+        if 'race_std' in period_df.columns:
+            race_fairness = compute_fairness_metrics(period_df, score_col, 'outcome_binary', 'race_std')
+            fairness_results.append({
+                'time_period': str(period),
+                'group_type': 'Race',
+                'demographic_parity_diff': race_fairness['demographic_parity_diff'],
+                'equalized_odds_diff': race_fairness['equalized_odds_diff'],
+                'tpr_diff': race_fairness['tpr_diff'],
+                'fpr_diff': race_fairness['fpr_diff']
+            })
+
+        # Fairness by age
+        if 'age_group' in period_df.columns:
+            age_fairness = compute_fairness_metrics(period_df, score_col, 'outcome_binary', 'age_group')
+            fairness_results.append({
+                'time_period': str(period),
+                'group_type': 'Age',
+                'demographic_parity_diff': age_fairness['demographic_parity_diff'],
+                'equalized_odds_diff': age_fairness['equalized_odds_diff'],
+                'tpr_diff': age_fairness['tpr_diff'],
+                'fpr_diff': age_fairness['fpr_diff']
+            })
+
+    return (
+        pd.DataFrame(classification_results),
+        pd.DataFrame(calibration_results),
+        pd.DataFrame(fairness_results)
+    )
 
 
 def compute_drift_deltas(results_df):
@@ -802,6 +1117,28 @@ def run_batch_analysis(datasets_to_run=None):
                         p_val = row.get('p_value_delong', np.nan)
                         p_str = f"p={p_val:.3f}" if not np.isnan(p_val) else ""
                         print(f"    {row['subgroup_type']:8} | {row['subgroup']:10} | {row['auc_first']:.3f} → {row['auc_last']:.3f} ({arrow}{abs(row['delta']):.3f}{sig_marker}) {p_str}")
+
+        # Run Xiaoli's recommended metrics analysis (SOFA only)
+        sofa_col = 'sofa' if 'sofa' in df.columns else None
+        if sofa_col:
+            print(f"\n  Running Xiaoli metrics analysis (SOFA>={SOFA_THRESHOLD} threshold)...")
+            class_results, calib_results, fairness_results = analyze_xiaoli_metrics(df, config, sofa_col)
+
+            # Save Xiaoli metrics to dataset directory
+            dataset_dir = Path(OUTPUT_DIR) / dataset_key
+            dataset_dir.mkdir(parents=True, exist_ok=True)
+
+            if not class_results.empty:
+                class_results.to_csv(dataset_dir / 'classification_metrics.csv', index=False)
+                print(f"    Saved classification metrics (TPR, FPR, PPV, NPV)")
+
+            if not calib_results.empty:
+                calib_results.to_csv(dataset_dir / 'calibration_metrics.csv', index=False)
+                print(f"    Saved calibration metrics (Brier score, SMR)")
+
+            if not fairness_results.empty:
+                fairness_results.to_csv(dataset_dir / 'fairness_metrics.csv', index=False)
+                print(f"    Saved fairness metrics (demographic parity, equalized odds)")
 
         # Export per-dataset tables (not cross-dataset)
         if dataset_results and dataset_deltas:

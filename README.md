@@ -195,6 +195,21 @@ Each figure shows a comprehensive 4-panel analysis for one dataset:
 - **65-79 Female White**: **+0.086** (p=0.006) - significant improvement
 - Pattern: Black males in older age groups show strong improvements
 
+#### Classification Metrics Drift (SOFA ≥ 10 Threshold)
+
+![MIMIC VA CAN Drift](figures/fig6b_mimic_combined_va_can_drift.png)
+*Figure 1c: MIMIC Combined - Performance drift in classification metrics at SOFA ≥ 10 threshold (JAMA Health Forum 2025 format). Shows absolute change (%) in Accuracy, F1, FPR, NPV, PPV, TPR from first to last time period with 95% CIs.*
+
+#### Calibration Metrics (SMR & Brier Score)
+
+![MIMIC Calibration](figures/fig7_mimic_combined_calibration.png)
+*Figure 1d: MIMIC Combined - Standardized Mortality Ratio and Brier Score over time*
+
+#### Fairness Metrics
+
+![MIMIC Fairness](figures/fig8_mimic_combined_fairness.png)
+*Figure 1e: MIMIC Combined - Demographic parity and equalized odds over time*
+
 ---
 
 ### Figure 2: eICU Combined (US, 2014-2021)
@@ -222,6 +237,21 @@ Each figure shows a comprehensive 4-panel analysis for one dataset:
 - **45-64 Male Hispanic**: **-0.186** (p<0.001) - significant decline
 - Pattern: Young minority males experience the worst performance degradation during COVID era
 
+#### Classification Metrics Drift (SOFA ≥ 10 Threshold)
+
+![eICU VA CAN Drift](figures/fig6b_eicu_combined_va_can_drift.png)
+*Figure 2c: eICU Combined - Performance drift in classification metrics at SOFA ≥ 10 threshold (JAMA Health Forum 2025 format). Shows absolute change (%) in Accuracy, F1, FPR, NPV, PPV, TPR from first to last time period with 95% CIs.*
+
+#### Calibration Metrics (SMR & Brier Score)
+
+![eICU Calibration](figures/fig7_eicu_combined_calibration.png)
+*Figure 2d: eICU Combined - Standardized Mortality Ratio and Brier Score over time*
+
+#### Fairness Metrics
+
+![eICU Fairness](figures/fig8_eicu_combined_fairness.png)
+*Figure 2e: eICU Combined - Demographic parity and equalized odds over time*
+
 ---
 
 ### Figure 3: Saltz (Netherlands, 2013-2021)
@@ -247,6 +277,21 @@ Each figure shows a comprehensive 4-panel analysis for one dataset:
 - **45-64 Male**: **+0.227** (p=0.002) - middle-aged males improve significantly
 - No race data available for European dataset
 - Pattern: Middle-aged males show strongest improvements
+
+#### Classification Metrics Drift (SOFA ≥ 10 Threshold)
+
+![Saltz VA CAN Drift](figures/fig6b_saltz_va_can_drift.png)
+*Figure 3c: Saltz - Performance drift in classification metrics at SOFA ≥ 10 threshold (JAMA Health Forum 2025 format). Shows absolute change (%) in Accuracy, F1, FPR, NPV, PPV, TPR from first to last time period with 95% CIs.*
+
+#### Calibration Metrics (SMR & Brier Score)
+
+![Saltz Calibration](figures/fig7_saltz_calibration.png)
+*Figure 3d: Saltz - Standardized Mortality Ratio and Brier Score over time*
+
+#### Fairness Metrics
+
+![Saltz Fairness](figures/fig8_saltz_fairness.png)
+*Figure 3e: Saltz - Demographic parity and equalized odds over time*
 
 ---
 
@@ -274,12 +319,45 @@ Each figure shows a comprehensive 4-panel analysis for one dataset:
 - No race data available for Asian dataset
 - Pattern: Gender differences more pronounced than age differences
 
+#### Classification Metrics Drift (SOFA ≥ 10 Threshold)
+
+![Zhejiang VA CAN Drift](figures/fig6b_zhejiang_va_can_drift.png)
+*Figure 4c: Zhejiang - Performance drift in classification metrics at SOFA ≥ 10 threshold (JAMA Health Forum 2025 format). Shows absolute change (%) in Accuracy, F1, FPR, NPV, PPV, TPR from first to last time period with 95% CIs.*
+
+#### Calibration Metrics (SMR & Brier Score)
+
+![Zhejiang Calibration](figures/fig7_zhejiang_calibration.png)
+*Figure 4d: Zhejiang - Standardized Mortality Ratio and Brier Score over time*
+
+#### Fairness Metrics
+
+![Zhejiang Fairness](figures/fig8_zhejiang_fairness.png)
+*Figure 4e: Zhejiang - Demographic parity and equalized odds over time*
+
 ---
 
 ### Figure 5: Summary (Key Findings)
 
 ![Summary Figure](figures/fig5_money_figure.png)
 *Figure 5: Multi-panel summary showing (A) Age group divergence, (B) Race disparities, (C) Comprehensive heatmap*
+
+---
+
+### Figure 6: Xiaoli Metrics Summary (Classification, Calibration, Fairness)
+
+![Xiaoli 3-Panel Summary](figures/fig9_xiaoli_3panel_summary.png)
+*Figure 6: Three-panel summary of SOFA ≥ 10 threshold metrics across all datasets: (A) AUC drift over time, (B) SMR calibration drift, (C) Fairness metrics heatmap*
+
+**Key Classification & Calibration Findings:**
+- SOFA ≥ 10 threshold corresponds to ~40% mortality (JAMA 2001)
+- TPR (Sensitivity) and PPV vary significantly across age groups and time
+- SMR (Standardized Mortality Ratio) drift indicates calibration changes over time
+- Brier score captures both discrimination and calibration performance
+
+**Key Fairness Findings:**
+- Demographic parity difference measures prediction rate disparities across groups
+- Equalized odds difference captures TPR/FPR disparities across protected groups
+- Cross-dataset patterns reveal consistent fairness concerns in certain subgroups
 
 ---
 
