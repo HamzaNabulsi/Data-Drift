@@ -191,7 +191,7 @@ def create_report():
     # Key Finding 4: Statistical Summary
     add_heading(doc, '4. Statistical Summary', 2)
 
-    doc.add_paragraph("Of 206 subgroup-score comparisons analyzed with DeLong's test:")
+    doc.add_paragraph("Of 206 subgroup-score comparisons analyzed with Page's L trend test (FDR-corrected):")
 
     stat_data = [
         ['eICU Combined (7 years)', '40 / 55', '72.7%', 'Notable drift'],
@@ -335,7 +335,7 @@ def create_report():
         ['Subgroup', 'MIMIC-IV', 'Saltz', 'Zhejiang', 'eICU', 'eICU-New'],
         sofa_data
     )
-    doc.add_paragraph("* = statistically significant (p < 0.05, DeLong's test)")
+    doc.add_paragraph("* = statistically significant (Page's trend test, FDR-corrected p < 0.05)")
 
     doc.add_page_break()
 
@@ -388,22 +388,23 @@ def create_report():
 
     methods_data = [
         ['Bootstrap CIs', 'Confidence intervals for AUC', 'Percentile method (n=100-1000)'],
-        ["DeLong's test", 'Compare AUCs between periods', 'Hanley-McNeil variance, z-test'],
-        ['Significance', 'Identify reliable drift', 'p < 0.05 or 95% CI excludes 0'],
+        ["Page's L trend test", 'Detect monotonic AUC trends across all periods', 'Two-sided test on bootstrap replicates'],
+        ['FDR correction', 'Control false discovery rate', 'Benjamini-Hochberg across all subgroup tests'],
+        ['Significance', 'Identify reliable drift', 'FDR-corrected p < 0.05'],
     ]
     add_table_from_data(doc,
         ['Method', 'Purpose', 'Implementation'],
         methods_data
     )
 
-    add_heading(doc, "What Does DeLong's Test Tell You?", 2)
+    add_heading(doc, "What Does Page's Trend Test Tell You?", 2)
 
     doc.add_paragraph(
-        "DeLong's test answers: \"Is the observed AUC change real, or just random noise?\""
+        "Page's L trend test answers: \"Is there a monotonic trend in AUC across ALL time periods, not just first vs last?\""
     )
 
-    doc.add_paragraph("• p < 0.05 → The drift is statistically significant (unlikely due to chance)")
-    doc.add_paragraph("• p ≥ 0.05 → The drift could be random variation (insufficient evidence)")
+    doc.add_paragraph("• FDR-corrected p < 0.05 → The trend is statistically significant after controlling for multiple comparisons")
+    doc.add_paragraph("• FDR-corrected p >= 0.05 → Insufficient evidence for a consistent trend")
 
     add_heading(doc, 'Example Interpretations', 3)
 

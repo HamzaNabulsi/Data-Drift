@@ -506,48 +506,100 @@ def create_per_dataset_figure(results, deltas, dataset_key, fig_num):
         ax_race.set_title('C. Overall Performance' + (' (95% CI)' if has_ci else '') + ' (No race data)')
         ax_race.set_ylim(0.5, 1.0)
 
-    # ========== Panel D: Subgroup Delta Summary (Bar Chart) ==========
+    # ========== Panel D: Intersectional AUC Trends (Line Chart) ==========
     ax_delta = axes[1, 1]
 
-    if ds_deltas is not None and not ds_deltas.empty:
-        # Filter for primary score and exclude 'All'
-        score_deltas = ds_deltas[(ds_deltas['score'] == primary_score) & (ds_deltas['subgroup'] != 'All')].copy()
+    # Show top 8 most significant intersectional groups as line chart across all periods
+    intersect_data = score_data[score_data['subgroup_type'] == 'Intersectional']
+    has_intersect_lines = False
 
-        if not score_deltas.empty:
-            # Sort by delta
-            score_deltas = score_deltas.sort_values('delta')
+    if not intersect_data.empty and ds_deltas is not None and not ds_deltas.empty and n_periods > 1:
+        # Get intersectional deltas for this score, sorted by significance
+        int_deltas = ds_deltas[
+            (ds_deltas['score'] == primary_score) &
+            (ds_deltas['subgroup_type'] == 'Intersectional')
+        ].copy()
 
-            # Create labels
-            score_deltas['label'] = score_deltas['subgroup_type'] + ': ' + score_deltas['subgroup']
+        if not int_deltas.empty:
+            p_col = 'p_value_trend_fdr' if 'p_value_trend_fdr' in int_deltas.columns else 'p_value_delong'
+            int_deltas_valid = int_deltas.dropna(subset=[p_col])
 
-            # Color by significance
-            colors = []
-            for _, row in score_deltas.iterrows():
-                if row.get('significant', False):
-                    colors.append('#2ca02c' if row['delta'] > 0 else '#d62728')
-                else:
-                    colors.append('#999999')
+            if not int_deltas_valid.empty:
+                # Pick top 4 degrading + top 4 improving (by significance)
+                degrading = int_deltas_valid[int_deltas_valid['delta'] < 0].nsmallest(4, p_col)
+                improving = int_deltas_valid[int_deltas_valid['delta'] > 0].nsmallest(4, p_col)
+                top8 = pd.concat([degrading, improving])
 
-            y_pos = np.arange(len(score_deltas))
-            bars = ax_delta.barh(y_pos, score_deltas['delta'], color=colors, alpha=0.8)
-            ax_delta.set_yticks(y_pos)
-            ax_delta.set_yticklabels(score_deltas['label'], fontsize=9)
-            ax_delta.axvline(x=0, color='black', linewidth=1)
-            ax_delta.set_xlabel(f'{primary_score.upper()} AUC Change (First → Last Period)')
-            ax_delta.set_title('D. Subgroup Drift Summary (* = p<0.05)')
+                if not top8.empty:
+                    # Color palette: reds for degrading, greens for improving
+                    red_shades = ['#d62728', '#e74c3c', '#c0392b', '#a93226']
+                    green_shades = ['#2ca02c', '#27ae60', '#1e8449', '#196f3d']
 
-            # Add significance markers
-            for i, (_, row) in enumerate(score_deltas.iterrows()):
-                if row.get('significant', False):
-                    x_pos = row['delta'] + 0.005 if row['delta'] >= 0 else row['delta'] - 0.005
-                    ha = 'left' if row['delta'] >= 0 else 'right'
-                    ax_delta.text(x_pos, i, '*', va='center', ha=ha, fontsize=12, fontweight='bold')
+                    deg_idx = 0
+                    imp_idx = 0
+                    for _, row in top8.iterrows():
+                        subgroup = row['subgroup']
+                        sub_data = intersect_data[intersect_data['subgroup'] == subgroup].sort_values('time_period')
+                        if sub_data.empty:
+                            continue
+
+                        is_degrading = row['delta'] < 0
+                        if is_degrading:
+                            color = red_shades[deg_idx % len(red_shades)]
+                            deg_idx += 1
+                        else:
+                            color = green_shades[imp_idx % len(green_shades)]
+                            imp_idx += 1
+
+                        sig_marker = '*' if row.get('significant', False) else ''
+                        label = f"{subgroup} ({row['delta']:+.3f}{sig_marker})"
+
+                        x = range(len(sub_data))
+                        ls = '-' if is_degrading else '--'
+                        ax_delta.plot(x, sub_data['auc'].values, marker='o', label=label,
+                                     color=color, markersize=5, linewidth=1.5,
+                                     linestyle=ls)
+
+                    ax_delta.set_xticks(range(n_periods))
+                    ax_delta.set_xticklabels(time_periods, rotation=45, ha='right', fontsize=8)
+                    ax_delta.set_xlabel('Year')
+                    ax_delta.set_ylabel(f'{primary_score.upper()} AUC')
+                    ax_delta.legend(fontsize=6, loc='best', title='Intersectional (* = FDR p<0.05)')
+                    ax_delta.set_ylim(0.4, 1.0)
+                    ax_delta.set_title('D. Intersectional AUC Trends (Top Degrading & Improving)')
+                    has_intersect_lines = True
+
+    if not has_intersect_lines:
+        # Fallback: bar chart if no intersectional data
+        if ds_deltas is not None and not ds_deltas.empty:
+            score_deltas = ds_deltas[(ds_deltas['score'] == primary_score) & (ds_deltas['subgroup'] != 'All')].copy()
+            if not score_deltas.empty:
+                score_deltas = score_deltas.sort_values('delta')
+                score_deltas['label'] = score_deltas['subgroup_type'] + ': ' + score_deltas['subgroup']
+                colors = []
+                for _, row in score_deltas.iterrows():
+                    if row.get('significant', False):
+                        colors.append('#2ca02c' if row['delta'] > 0 else '#d62728')
+                    else:
+                        colors.append('#999999')
+                y_pos = np.arange(len(score_deltas))
+                ax_delta.barh(y_pos, score_deltas['delta'], color=colors, alpha=0.8)
+                ax_delta.set_yticks(y_pos)
+                ax_delta.set_yticklabels(score_deltas['label'], fontsize=9)
+                ax_delta.axvline(x=0, color='black', linewidth=1)
+                ax_delta.set_xlabel(f'{primary_score.upper()} AUC Change')
+                ax_delta.set_title('D. Subgroup Drift Summary (* = FDR p<0.05)')
+                for i, (_, row) in enumerate(score_deltas.iterrows()):
+                    if row.get('significant', False):
+                        x_pos = row['delta'] + 0.005 if row['delta'] >= 0 else row['delta'] - 0.005
+                        ha = 'left' if row['delta'] >= 0 else 'right'
+                        ax_delta.text(x_pos, i, '*', va='center', ha=ha, fontsize=12, fontweight='bold')
+            else:
+                ax_delta.text(0.5, 0.5, 'No data available', ha='center', va='center')
+                ax_delta.set_title('D. Intersectional AUC Trends')
         else:
-            ax_delta.text(0.5, 0.5, 'No delta data available', ha='center', va='center')
-            ax_delta.set_title('D. Subgroup Drift Summary')
-    else:
-        ax_delta.text(0.5, 0.5, 'No delta data available', ha='center', va='center')
-        ax_delta.set_title('D. Subgroup Drift Summary')
+            ax_delta.text(0.5, 0.5, 'No data available', ha='center', va='center')
+            ax_delta.set_title('D. Intersectional AUC Trends')
 
     # Finalize
     plt.suptitle(f'{dataset_name}: Non-Uniform Subgroup Drift Analysis', fontsize=16, y=1.02)
@@ -1098,12 +1150,12 @@ def figS6_significance_forest_plot(deltas):
     ax.set_yticks(y_pos)
     ax.set_yticklabels(sig_deltas['label'], fontsize=9)
     ax.set_xlabel('AUC Change (First → Last Period)', fontsize=11)
-    ax.set_title('Statistically Significant Drift (p < 0.05, DeLong\'s Test)' +
+    ax.set_title('Statistically Significant Drift (Page\'s Trend Test, FDR-corrected p < 0.05)' +
                  (' with 95% CI' if has_ci else ''), fontsize=13, pad=15)
 
     # Add p-value annotations
     for i, (_, row) in enumerate(sig_deltas.iterrows()):
-        p_val = row['p_value_delong']
+        p_val = row.get('p_value_trend_fdr', row.get('p_value_delong', np.nan))
         if p_val < 0.001:
             p_str = 'p<0.001'
         else:
@@ -1437,6 +1489,132 @@ def figS11_temporal_trajectory(results):
     print("Saved: supplementary/figS11_temporal_trajectory.png")
 
 
+def figS12_between_group_forest_plot():
+    """Supplementary Figure S12: Forest plot of between-group drift comparisons.
+
+    Shows whether drift in one subgroup is significantly different from another.
+    Reads from output/{dataset}/between_group_comparisons.csv files.
+    """
+    # Load between-group comparison data from all datasets
+    all_bg = []
+    for dataset_key in ['mimic_combined', 'eicu_combined', 'saltz', 'zhejiang']:
+        bg_file = OUTPUT_DIR / dataset_key / 'between_group_comparisons.csv'
+        if bg_file.exists():
+            df = pd.read_csv(bg_file)
+            all_bg.append(df)
+
+    if not all_bg:
+        print("No between-group comparison data found for figS12")
+        return
+
+    bg = pd.concat(all_bg, ignore_index=True)
+
+    # Focus on SOFA score and non-Intersectional comparisons (Race, Age, Gender vs Overall)
+    # Filter to pairwise comparisons within Race/Gender/Age + vs Overall
+    sofa_bg = bg[bg['score'] == 'sofa'].copy()
+
+    if sofa_bg.empty:
+        print("No SOFA between-group comparisons for figS12")
+        return
+
+    # For clarity: show Race pairwise + all-vs-Overall comparisons
+    # Exclude Intersectional pairwise (too many) — keep only Intersectional vs Overall
+    mask = (
+        (sofa_bg['subgroup_type'].isin(['Race', 'Gender', 'Age'])) |
+        ((sofa_bg['subgroup_type'] == 'Intersectional') & (sofa_bg['group_b'] == 'Overall (All)'))
+    )
+    plot_bg = sofa_bg[mask].copy()
+
+    # Filter to significant only for Intersectional (otherwise too many rows)
+    inter_mask = plot_bg['subgroup_type'] == 'Intersectional'
+    inter_sig = plot_bg[inter_mask & (plot_bg['significant'] == True)]
+    non_inter = plot_bg[~inter_mask]
+
+    # For intersectional: take top 5 most negative and top 5 most positive
+    if len(inter_sig) > 10:
+        top_neg = inter_sig.nsmallest(5, 'delta_diff')
+        top_pos = inter_sig.nlargest(5, 'delta_diff')
+        inter_sig = pd.concat([top_neg, top_pos]).drop_duplicates()
+
+    plot_bg = pd.concat([non_inter, inter_sig], ignore_index=True)
+
+    if plot_bg.empty:
+        print("No data to plot for figS12")
+        return
+
+    # Create label
+    plot_bg['label'] = (
+        plot_bg['dataset_name'].str.split(' \\(').str[0] + ' | ' +
+        plot_bg['group_a'] + ' vs ' + plot_bg['group_b'] +
+        ' [' + plot_bg['subgroup_type'] + ']'
+    )
+
+    # Sort by delta_diff
+    plot_bg = plot_bg.sort_values('delta_diff')
+
+    fig, ax = plt.subplots(figsize=(14, max(8, len(plot_bg) * 0.35)))
+    y_pos = np.arange(len(plot_bg))
+
+    # Color by significance and direction
+    colors = []
+    for _, row in plot_bg.iterrows():
+        if not row.get('significant', False):
+            colors.append('#999999')  # grey for non-significant
+        elif row['delta_diff'] > 0:
+            colors.append('#2ca02c')  # green
+        else:
+            colors.append('#d62728')  # red
+
+    bars = ax.barh(y_pos, plot_bg['delta_diff'], color=colors, alpha=0.7, height=0.7)
+
+    # Error bars from CI
+    if 'delta_diff_ci_lower' in plot_bg.columns:
+        xerr = np.array([
+            plot_bg['delta_diff'].values - plot_bg['delta_diff_ci_lower'].values,
+            plot_bg['delta_diff_ci_upper'].values - plot_bg['delta_diff'].values
+        ])
+        xerr = np.nan_to_num(xerr, nan=0)
+        xerr = np.clip(xerr, 0, None)
+        ax.errorbar(plot_bg['delta_diff'], y_pos, xerr=xerr, fmt='none',
+                    color='black', capsize=2, capthick=1, elinewidth=1)
+
+    ax.axvline(x=0, color='black', linestyle='-', linewidth=1)
+
+    ax.set_yticks(y_pos)
+    ax.set_yticklabels(plot_bg['label'], fontsize=8)
+    ax.set_xlabel('Difference in AUC Drift (Group A − Group B)', fontsize=11)
+    ax.set_title('Between-Group Drift Comparison (SOFA, Mann-Whitney U, FDR-corrected)', fontsize=13, pad=15)
+
+    # Add p-value annotations
+    for i, (_, row) in enumerate(plot_bg.iterrows()):
+        p_val = row.get('p_value_fdr', np.nan)
+        if pd.notna(p_val):
+            if p_val < 0.001:
+                p_str = 'p<0.001'
+            else:
+                p_str = f'p={p_val:.3f}'
+        else:
+            p_str = ''
+
+        x_pos = row['delta_diff'] + 0.005 if row['delta_diff'] >= 0 else row['delta_diff'] - 0.005
+        ha = 'left' if row['delta_diff'] >= 0 else 'right'
+        ax.text(x_pos, i, p_str, va='center', ha=ha, fontsize=7, style='italic')
+
+    # Legend
+    from matplotlib.patches import Patch
+    legend_elements = [
+        Patch(facecolor='#2ca02c', alpha=0.7, label='Group A drifts more positively'),
+        Patch(facecolor='#d62728', alpha=0.7, label='Group A drifts more negatively'),
+        Patch(facecolor='#999999', alpha=0.7, label='Not significant (FDR p ≥ 0.05)'),
+    ]
+    ax.legend(handles=legend_elements, loc='lower right', fontsize=8)
+
+    plt.tight_layout()
+    fig.savefig(SUPPLEMENTARY_FIGURES_DIR / 'figS12_between_group_comparison.png', dpi=300, bbox_inches='tight')
+    plt.close()
+    print("Saved: supplementary/figS12_between_group_comparison.png")
+
+
 def create_summary_table(results, deltas):
     """Create per-dataset summary tables (NOT cross-dataset comparisons).
 
@@ -1458,13 +1636,14 @@ def create_summary_table(results, deltas):
         # Table: Summary by score for this dataset
         overall = dataset_deltas[dataset_deltas['subgroup'] == 'All'].copy()
         if not overall.empty:
-            summary = overall[['score', 'auc_first', 'auc_last', 'delta', 'p_value_delong', 'significant']].copy()
+            p_col = 'p_value_trend_fdr' if 'p_value_trend_fdr' in overall.columns else 'p_value_delong'
+            summary = overall[['score', 'auc_first', 'auc_last', 'delta', p_col, 'significant']].copy()
             summary['score'] = summary['score'].str.upper()
             summary = summary.rename(columns={
                 'auc_first': 'AUC (First)',
                 'auc_last': 'AUC (Last)',
                 'delta': 'Delta',
-                'p_value_delong': 'p-value',
+                p_col: 'p-value',
                 'significant': 'Significant'
             })
             summary.to_csv(dataset_dir / 'summary_by_score.csv', index=False)
@@ -2082,6 +2261,9 @@ def main():
     # S11: Temporal trajectory (cross-dataset)
     figS11_temporal_trajectory(results)
 
+    # S12: Between-group drift comparison forest plot
+    figS12_between_group_forest_plot()
+
     # Create summary tables
     print("\nGenerating summary tables...")
     create_summary_table(results, deltas)
@@ -2093,7 +2275,7 @@ def main():
     print("ALL FIGURES GENERATED SUCCESSFULLY")
     print("="*60)
     print(f"\nMain figures (1-5): {FIGURES_DIR}")
-    print(f"Supplementary figures (S1-S11): {SUPPLEMENTARY_FIGURES_DIR}")
+    print(f"Supplementary figures (S1-S12): {SUPPLEMENTARY_FIGURES_DIR}")
     print(f"Tables: {OUTPUT_DIR}")
 
 

@@ -25,6 +25,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from config import DATASETS, OUTPUT_PATH as OUTPUT_DIR
 from sklearn.metrics import roc_auc_score, brier_score_loss, confusion_matrix
 from scipy import stats
+from scipy.stats import page_trend_test, false_discovery_control
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -145,13 +146,16 @@ def compute_auc(y_true, y_pred):
         return np.nan
 
 
-def compute_auc_with_ci(y_true, y_pred, n_bootstrap=N_BOOTSTRAP, ci_level=CI_LEVEL):
+def compute_auc_with_ci(y_true, y_pred, n_bootstrap=N_BOOTSTRAP, ci_level=CI_LEVEL,
+                         return_replicates=False):
     """
     Compute AUC with bootstrap confidence intervals.
 
     Returns:
         tuple: (auc, ci_lower, ci_upper) or (nan, nan, nan) if computation fails
+               If return_replicates=True, returns (auc, ci_lower, ci_upper, bootstrap_aucs)
     """
+    fail = (np.nan, np.nan, np.nan, []) if return_replicates else (np.nan, np.nan, np.nan)
     try:
         # Convert to numpy arrays
         y_true = np.array(y_true)
@@ -163,7 +167,7 @@ def compute_auc_with_ci(y_true, y_pred, n_bootstrap=N_BOOTSTRAP, ci_level=CI_LEV
         y_pred = y_pred[mask]
 
         if len(y_true) < 30 or len(np.unique(y_true)) < 2:
-            return np.nan, np.nan, np.nan
+            return fail
 
         # Compute point estimate
         auc = roc_auc_score(y_true, y_pred)
@@ -190,6 +194,8 @@ def compute_auc_with_ci(y_true, y_pred, n_bootstrap=N_BOOTSTRAP, ci_level=CI_LEV
 
         if len(bootstrap_aucs) < n_bootstrap * 0.5:
             # Too many failed bootstraps
+            if return_replicates:
+                return auc, np.nan, np.nan, bootstrap_aucs
             return auc, np.nan, np.nan
 
         # Compute percentile CI
@@ -197,10 +203,12 @@ def compute_auc_with_ci(y_true, y_pred, n_bootstrap=N_BOOTSTRAP, ci_level=CI_LEV
         ci_lower = np.percentile(bootstrap_aucs, alpha * 100)
         ci_upper = np.percentile(bootstrap_aucs, (1 - alpha) * 100)
 
+        if return_replicates:
+            return auc, ci_lower, ci_upper, bootstrap_aucs
         return auc, ci_lower, ci_upper
 
     except Exception as e:
-        return np.nan, np.nan, np.nan
+        return fail
 
 
 # =============================================================================
@@ -495,8 +503,13 @@ def analyze_drift(df, config, score_col, compute_ci=True):
         config: Dataset configuration
         score_col: Column name for the severity score
         compute_ci: Whether to compute bootstrap confidence intervals (slower but recommended)
+
+    Returns:
+        tuple: (results_df, bootstrap_store) where bootstrap_store is a dict
+               keyed by (subgroup_type, subgroup, period) → list of bootstrap AUC replicates
     """
     results = []
+    bootstrap_store = {}
 
     year_col = config['year_col']
     outcome_col = config['outcome_col']
@@ -508,12 +521,12 @@ def analyze_drift(df, config, score_col, compute_ci=True):
     # Get time periods
     if year_col not in df.columns:
         print(f"  WARNING: Year column '{year_col}' not found")
-        return pd.DataFrame()
+        return pd.DataFrame(), bootstrap_store
 
     time_periods = sorted(df[year_col].dropna().unique())
     if len(time_periods) < 2:
         print(f"  WARNING: Only {len(time_periods)} time period(s) found, skipping")
-        return pd.DataFrame()
+        return pd.DataFrame(), bootstrap_store
 
     print(f"  Time periods: {time_periods}")
     if compute_ci:
@@ -522,9 +535,10 @@ def analyze_drift(df, config, score_col, compute_ci=True):
     def _compute_and_append(subset, subgroup_type, subgroup, period):
         """Helper to compute AUC (+CI) and append to results."""
         if compute_ci:
-            auc, ci_lower, ci_upper = compute_auc_with_ci(
-                subset['outcome_binary'], subset[score_col]
+            auc, ci_lower, ci_upper, replicates = compute_auc_with_ci(
+                subset['outcome_binary'], subset[score_col], return_replicates=True
             )
+            bootstrap_store[(subgroup_type, subgroup, str(period))] = replicates
         else:
             auc = compute_auc(subset['outcome_binary'], subset[score_col])
             ci_lower, ci_upper = np.nan, np.nan
@@ -598,7 +612,7 @@ def analyze_drift(df, config, score_col, compute_ci=True):
                         if len(subset) >= 30:
                             _compute_and_append(subset, 'Intersectional', subgroup_label, period)
 
-    return pd.DataFrame(results)
+    return pd.DataFrame(results), bootstrap_store
 
 
 def analyze_xiaoli_metrics(df, config, score_col='sofa'):
@@ -1004,7 +1018,356 @@ def compute_drift_deltas_with_pvalues(df, config, score_col, results_df, n_permu
     return pd.DataFrame(deltas)
 
 
-def export_per_dataset_tables(dataset_key, dataset_name, results_df, deltas_df, output_dir):
+def compute_drift_trend_test(results_df, bootstrap_store, alpha=0.05):
+    """
+    Compute drift trend significance using Page's L trend test on bootstrap replicates.
+
+    For each subgroup, constructs a matrix (rows=bootstrap replicates, columns=ordered periods)
+    and tests for a monotonic trend across ALL periods (not just first vs last).
+    Applies Benjamini-Hochberg FDR correction across all tests.
+
+    Args:
+        results_df: Results DataFrame from analyze_drift (with auc per period)
+        bootstrap_store: dict of {(subgroup_type, subgroup, period): [bootstrap_aucs]}
+        alpha: Significance threshold after FDR correction (default 0.05)
+
+    Returns:
+        DataFrame with trend test results including FDR-corrected p-values
+    """
+    if results_df.empty:
+        return pd.DataFrame()
+
+    periods = sorted(results_df['time_period'].unique())
+    if len(periods) < 2:
+        return pd.DataFrame()
+
+    first_period = periods[0]
+    last_period = periods[-1]
+
+    deltas = []
+
+    for (subgroup_type, subgroup), group in results_df.groupby(['subgroup_type', 'subgroup']):
+        first = group[group['time_period'] == first_period]
+        last = group[group['time_period'] == last_period]
+
+        if first.empty or last.empty:
+            continue
+
+        auc_first = first['auc'].values[0]
+        auc_last = last['auc'].values[0]
+
+        if np.isnan(auc_first) or np.isnan(auc_last):
+            continue
+
+        delta = auc_last - auc_first
+
+        # Gather bootstrap replicates across all periods for this subgroup
+        available_periods = []
+        replicate_lists = []
+        for p in periods:
+            key = (subgroup_type, subgroup, str(p))
+            if key in bootstrap_store and len(bootstrap_store[key]) > 0:
+                available_periods.append(p)
+                replicate_lists.append(bootstrap_store[key])
+
+        # Page's test needs >= 3 periods and >= 3 replicates
+        p_trend = np.nan
+        L_stat = np.nan
+        trend_direction = 'none'
+
+        if len(available_periods) >= 3:
+            min_len = min(len(r) for r in replicate_lists)
+            if min_len >= 3:
+                # Build matrix: rows=replicates, columns=periods (ordered)
+                matrix = np.column_stack([np.array(r[:min_len]) for r in replicate_lists])
+
+                try:
+                    # Test for increasing trend
+                    res_inc = page_trend_test(matrix, method='asymptotic')
+                    p_inc = res_inc.pvalue
+                except Exception:
+                    p_inc = 1.0
+
+                try:
+                    # Test for decreasing trend (reverse column order)
+                    res_dec = page_trend_test(matrix[:, ::-1], method='asymptotic')
+                    p_dec = res_dec.pvalue
+                except Exception:
+                    p_dec = 1.0
+
+                # Two-sided p-value
+                p_trend = min(2.0 * min(p_inc, p_dec), 1.0)
+
+                if p_inc < p_dec:
+                    trend_direction = 'increasing'
+                    L_stat = res_inc.statistic
+                else:
+                    trend_direction = 'decreasing'
+                    L_stat = res_dec.statistic
+        elif len(available_periods) == 2:
+            # Fallback: with only 2 periods, use DeLong's test
+            min_len = min(len(r) for r in replicate_lists)
+            if min_len >= 3:
+                from scipy.stats import mannwhitneyu
+                r1 = np.array(replicate_lists[0][:min_len])
+                r2 = np.array(replicate_lists[1][:min_len])
+                try:
+                    _, p_trend = mannwhitneyu(r1, r2, alternative='two-sided')
+                    trend_direction = 'increasing' if np.median(r2) > np.median(r1) else 'decreasing'
+                except Exception:
+                    p_trend = np.nan
+
+        # Get CIs
+        ci_first_lower = first['auc_ci_lower'].values[0] if 'auc_ci_lower' in first.columns else np.nan
+        ci_first_upper = first['auc_ci_upper'].values[0] if 'auc_ci_upper' in first.columns else np.nan
+        ci_last_lower = last['auc_ci_lower'].values[0] if 'auc_ci_lower' in last.columns else np.nan
+        ci_last_upper = last['auc_ci_upper'].values[0] if 'auc_ci_upper' in last.columns else np.nan
+
+        if not np.isnan(ci_first_lower) and not np.isnan(ci_last_lower):
+            delta_ci_lower = ci_last_lower - ci_first_upper
+            delta_ci_upper = ci_last_upper - ci_first_lower
+        else:
+            delta_ci_lower = np.nan
+            delta_ci_upper = np.nan
+
+        deltas.append({
+            'subgroup_type': subgroup_type,
+            'subgroup': subgroup,
+            'auc_first': auc_first,
+            'auc_first_ci_lower': ci_first_lower,
+            'auc_first_ci_upper': ci_first_upper,
+            'auc_last': auc_last,
+            'auc_last_ci_lower': ci_last_lower,
+            'auc_last_ci_upper': ci_last_upper,
+            'delta': delta,
+            'delta_ci_lower': delta_ci_lower,
+            'delta_ci_upper': delta_ci_upper,
+            'trend_direction': trend_direction,
+            'page_L_statistic': L_stat,
+            'p_value_trend': p_trend,
+            'period_first': first_period,
+            'period_last': last_period,
+            'n_first': first['n'].values[0],
+            'n_last': last['n'].values[0],
+            'n_periods': len(available_periods),
+            # Legacy columns for backward compatibility
+            'z_statistic': np.nan,
+            'p_value_delong': p_trend,  # alias for downstream consumers
+            'p_value_permutation': np.nan,
+        })
+
+    if not deltas:
+        return pd.DataFrame()
+
+    deltas_df = pd.DataFrame(deltas)
+
+    # Benjamini-Hochberg FDR correction across all tests
+    valid_mask = deltas_df['p_value_trend'].notna()
+    if valid_mask.sum() > 0:
+        raw_pvals = deltas_df.loc[valid_mask, 'p_value_trend'].values
+        adjusted = false_discovery_control(raw_pvals, method='bh')
+        deltas_df.loc[valid_mask, 'p_value_trend_fdr'] = adjusted
+        deltas_df.loc[valid_mask, 'significant'] = adjusted < alpha
+    else:
+        deltas_df['p_value_trend_fdr'] = np.nan
+        deltas_df['significant'] = False
+
+    if 'p_value_trend_fdr' not in deltas_df.columns:
+        deltas_df['p_value_trend_fdr'] = np.nan
+    if 'significant' not in deltas_df.columns:
+        deltas_df['significant'] = False
+    deltas_df['significant'] = deltas_df['significant'].infer_objects(copy=False).fillna(False)
+
+    return deltas_df
+
+
+def compute_between_group_drift_comparison(deltas_df, bootstrap_store, alpha=0.05):
+    """
+    Test whether drift differs significantly BETWEEN subgroups.
+
+    For each subgroup_type (Age, Gender, Race): pairwise Mann-Whitney U
+    on bootstrap delta distributions. For Intersectional: compare each
+    group vs Overall only (too many pairwise otherwise).
+
+    Args:
+        deltas_df: Output from compute_drift_trend_test() (one row per subgroup-score)
+        bootstrap_store: dict of {(subgroup_type, subgroup, period_str): [auc_replicates]}
+        alpha: Significance threshold after FDR correction
+
+    Returns:
+        DataFrame with between-group comparison results
+    """
+    from scipy.stats import mannwhitneyu
+    from itertools import combinations
+
+    if deltas_df.empty or not bootstrap_store:
+        return pd.DataFrame()
+
+    # Determine periods from bootstrap_store keys
+    all_periods = sorted(set(k[2] for k in bootstrap_store.keys()))
+    if len(all_periods) < 2:
+        return pd.DataFrame()
+
+    first_period = all_periods[0]
+    last_period = all_periods[-1]
+
+    comparisons = []
+
+    # Get unique subgroup_types present in the data
+    subgroup_types = deltas_df['subgroup_type'].unique()
+
+    for stype in subgroup_types:
+        stype_data = deltas_df[deltas_df['subgroup_type'] == stype]
+        subgroups = stype_data['subgroup'].unique().tolist()
+
+        if len(subgroups) < 2 and stype != 'Intersectional':
+            continue
+
+        # Build delta distributions for each subgroup in this type
+        delta_distributions = {}
+        for sg in subgroups:
+            key_first = (stype, sg, str(first_period))
+            key_last = (stype, sg, str(last_period))
+
+            if key_first not in bootstrap_store or key_last not in bootstrap_store:
+                continue
+
+            reps_first = np.array(bootstrap_store[key_first])
+            reps_last = np.array(bootstrap_store[key_last])
+
+            min_len = min(len(reps_first), len(reps_last))
+            if min_len < 3:
+                continue
+
+            # delta distribution: AUC_last - AUC_first for each replicate
+            delta_dist = reps_last[:min_len] - reps_first[:min_len]
+            delta_distributions[sg] = delta_dist
+
+        if stype == 'Intersectional':
+            # Compare each intersectional group vs Overall
+            overall_key_first = ('Overall', 'All', str(first_period))
+            overall_key_last = ('Overall', 'All', str(last_period))
+
+            if overall_key_first in bootstrap_store and overall_key_last in bootstrap_store:
+                reps_first_ov = np.array(bootstrap_store[overall_key_first])
+                reps_last_ov = np.array(bootstrap_store[overall_key_last])
+                min_len_ov = min(len(reps_first_ov), len(reps_last_ov))
+
+                if min_len_ov >= 3:
+                    delta_overall = reps_last_ov[:min_len_ov] - reps_first_ov[:min_len_ov]
+
+                    for sg, delta_dist in delta_distributions.items():
+                        try:
+                            _, p_val = mannwhitneyu(delta_dist, delta_overall, alternative='two-sided')
+                        except Exception:
+                            p_val = np.nan
+
+                        obs_delta_a = np.median(delta_dist)
+                        obs_delta_b = np.median(delta_overall)
+                        diff_dist = delta_dist[:min(len(delta_dist), len(delta_overall))] - \
+                                    delta_overall[:min(len(delta_dist), len(delta_overall))]
+
+                        comparisons.append({
+                            'subgroup_type': stype,
+                            'group_a': sg,
+                            'group_b': 'Overall (All)',
+                            'delta_a': obs_delta_a,
+                            'delta_b': obs_delta_b,
+                            'delta_diff': obs_delta_a - obs_delta_b,
+                            'delta_diff_ci_lower': np.percentile(diff_dist, 2.5),
+                            'delta_diff_ci_upper': np.percentile(diff_dist, 97.5),
+                            'p_value': p_val,
+                        })
+        else:
+            # Pairwise comparisons within this subgroup_type
+            for sg_a, sg_b in combinations(sorted(delta_distributions.keys()), 2):
+                delta_a = delta_distributions[sg_a]
+                delta_b = delta_distributions[sg_b]
+
+                try:
+                    _, p_val = mannwhitneyu(delta_a, delta_b, alternative='two-sided')
+                except Exception:
+                    p_val = np.nan
+
+                obs_delta_a = np.median(delta_a)
+                obs_delta_b = np.median(delta_b)
+                min_len = min(len(delta_a), len(delta_b))
+                diff_dist = delta_a[:min_len] - delta_b[:min_len]
+
+                comparisons.append({
+                    'subgroup_type': stype,
+                    'group_a': sg_a,
+                    'group_b': sg_b,
+                    'delta_a': obs_delta_a,
+                    'delta_b': obs_delta_b,
+                    'delta_diff': obs_delta_a - obs_delta_b,
+                    'delta_diff_ci_lower': np.percentile(diff_dist, 2.5),
+                    'delta_diff_ci_upper': np.percentile(diff_dist, 97.5),
+                    'p_value': p_val,
+                })
+
+            # Also compare each subgroup vs Overall
+            overall_key_first = ('Overall', 'All', str(first_period))
+            overall_key_last = ('Overall', 'All', str(last_period))
+
+            if overall_key_first in bootstrap_store and overall_key_last in bootstrap_store:
+                reps_first_ov = np.array(bootstrap_store[overall_key_first])
+                reps_last_ov = np.array(bootstrap_store[overall_key_last])
+                min_len_ov = min(len(reps_first_ov), len(reps_last_ov))
+
+                if min_len_ov >= 3:
+                    delta_overall = reps_last_ov[:min_len_ov] - reps_first_ov[:min_len_ov]
+
+                    for sg, delta_dist in delta_distributions.items():
+                        try:
+                            _, p_val = mannwhitneyu(delta_dist, delta_overall, alternative='two-sided')
+                        except Exception:
+                            p_val = np.nan
+
+                        obs_delta_a = np.median(delta_dist)
+                        obs_delta_b = np.median(delta_overall)
+                        min_len = min(len(delta_dist), len(delta_overall))
+                        diff_dist = delta_dist[:min_len] - delta_overall[:min_len]
+
+                        comparisons.append({
+                            'subgroup_type': stype,
+                            'group_a': sg,
+                            'group_b': 'Overall (All)',
+                            'delta_a': obs_delta_a,
+                            'delta_b': obs_delta_b,
+                            'delta_diff': obs_delta_a - obs_delta_b,
+                            'delta_diff_ci_lower': np.percentile(diff_dist, 2.5),
+                            'delta_diff_ci_upper': np.percentile(diff_dist, 97.5),
+                            'p_value': p_val,
+                        })
+
+    if not comparisons:
+        return pd.DataFrame()
+
+    comp_df = pd.DataFrame(comparisons)
+
+    # FDR correction across all comparisons
+    valid_mask = comp_df['p_value'].notna()
+    if valid_mask.sum() > 0:
+        raw_pvals = comp_df.loc[valid_mask, 'p_value'].values
+        adjusted = false_discovery_control(raw_pvals, method='bh')
+        comp_df.loc[valid_mask, 'p_value_fdr'] = adjusted
+        comp_df.loc[valid_mask, 'significant'] = adjusted < alpha
+    else:
+        comp_df['p_value_fdr'] = np.nan
+        comp_df['significant'] = False
+
+    if 'p_value_fdr' not in comp_df.columns:
+        comp_df['p_value_fdr'] = np.nan
+    if 'significant' not in comp_df.columns:
+        comp_df['significant'] = False
+    comp_df['significant'] = comp_df['significant'].infer_objects(copy=False).fillna(False)
+
+    return comp_df
+
+
+def export_per_dataset_tables(dataset_key, dataset_name, results_df, deltas_df, output_dir,
+                              between_group_df=None):
     """
     Export per-dataset tables (not cross-dataset comparisons).
 
@@ -1013,6 +1376,7 @@ def export_per_dataset_tables(dataset_key, dataset_name, results_df, deltas_df, 
     - output/{dataset}/drift_deltas.csv - Delta changes with p-values
     - output/{dataset}/summary_by_score.csv - Summary table per score
     - output/{dataset}/subgroup_drift.csv - Subgroup-level drift summary
+    - output/{dataset}/between_group_comparisons.csv - Between-group drift comparisons
     """
     # Create dataset-specific output directory
     dataset_dir = Path(output_dir) / dataset_key
@@ -1040,7 +1404,7 @@ def export_per_dataset_tables(dataset_key, dataset_name, results_df, deltas_df, 
                 'AUC (Last Period)': f"{row['auc_last']:.3f}",
                 'Delta': f"{row['delta']:+.3f}",
                 '95% CI': f"({row['delta_ci_lower']:.3f}, {row['delta_ci_upper']:.3f})",
-                'p-value': f"{row['p_value_delong']:.4f}" if pd.notna(row['p_value_delong']) else 'N/A',
+                'p-value (trend)': f"{row.get('p_value_trend_fdr', row.get('p_value_delong', np.nan)):.4f}" if pd.notna(row.get('p_value_trend_fdr', row.get('p_value_delong', np.nan))) else 'N/A',
                 'Significant': 'Yes' if row.get('significant', False) else 'No',
                 'N (First)': int(row['n_first']),
                 'N (Last)': int(row['n_last'])
@@ -1063,7 +1427,7 @@ def export_per_dataset_tables(dataset_key, dataset_name, results_df, deltas_df, 
             'AUC Last': f"{row['auc_last']:.3f}",
             'Delta': f"{row['delta']:+.3f}{sig_marker}",
             '95% CI': f"({row['delta_ci_lower']:.3f}, {row['delta_ci_upper']:.3f})",
-            'p-value': f"{row['p_value_delong']:.4f}" if pd.notna(row['p_value_delong']) else 'N/A',
+            'p-value (trend, FDR)': f"{row.get('p_value_trend_fdr', row.get('p_value_delong', np.nan)):.4f}" if pd.notna(row.get('p_value_trend_fdr', row.get('p_value_delong', np.nan))) else 'N/A',
             'Period First': row['period_first'],
             'Period Last': row['period_last']
         })
@@ -1072,6 +1436,13 @@ def export_per_dataset_tables(dataset_key, dataset_name, results_df, deltas_df, 
         subgroup_df = pd.DataFrame(subgroup_rows)
         subgroup_file = dataset_dir / 'subgroup_drift.csv'
         subgroup_df.to_csv(subgroup_file, index=False)
+
+    # 5. Save between-group comparisons if provided
+    if between_group_df is not None and not between_group_df.empty:
+        bg_file = dataset_dir / 'between_group_comparisons.csv'
+        between_group_df.to_csv(bg_file, index=False)
+        n_sig = between_group_df['significant'].sum() if 'significant' in between_group_df.columns else 0
+        print(f"  Saved between-group comparisons ({n_sig}/{len(between_group_df)} significant)")
 
     print(f"  Exported tables to: {dataset_dir}/")
     return dataset_dir
@@ -1119,6 +1490,7 @@ def run_batch_analysis(datasets_to_run=None):
         # Collect per-dataset results
         dataset_results = []
         dataset_deltas = []
+        dataset_between_group = []
 
         for score_col in score_cols:
             if score_col not in df.columns:
@@ -1128,7 +1500,7 @@ def run_batch_analysis(datasets_to_run=None):
             print(f"\n  Analyzing {score_col.upper()} score...")
 
             # Run drift analysis
-            results = analyze_drift(df, config, score_col)
+            results, bootstrap_store = analyze_drift(df, config, score_col)
 
             if not results.empty:
                 results['dataset'] = dataset_key
@@ -1137,12 +1509,12 @@ def run_batch_analysis(datasets_to_run=None):
                 all_results.append(results)
                 dataset_results.append(results)
 
-                # Compute deltas with statistical testing (DeLong's test)
-                print(f"  Computing statistical significance (DeLong's test)...")
-                deltas = compute_drift_deltas_with_pvalues(df, config, score_col, results, n_permutations=None)
+                # Compute deltas with trend test (Page's L test + FDR correction)
+                print(f"  Computing trend significance (Page's L test + FDR correction)...")
+                deltas = compute_drift_trend_test(results, bootstrap_store)
 
                 if deltas.empty:
-                    # Fallback to simple deltas if p-value computation fails
+                    # Fallback to simple deltas if trend test fails
                     deltas = compute_drift_deltas(results)
 
                 if not deltas.empty:
@@ -1152,13 +1524,24 @@ def run_batch_analysis(datasets_to_run=None):
                     all_deltas.append(deltas)
                     dataset_deltas.append(deltas)
 
+                    # Compute between-group drift comparisons
+                    print(f"  Computing between-group drift comparisons...")
+                    bg_comparisons = compute_between_group_drift_comparison(deltas, bootstrap_store)
+                    if not bg_comparisons.empty:
+                        bg_comparisons['dataset'] = dataset_key
+                        bg_comparisons['dataset_name'] = config['name']
+                        bg_comparisons['score'] = score_col
+                        dataset_between_group.append(bg_comparisons)
+                        n_sig = bg_comparisons['significant'].sum()
+                        print(f"    {n_sig}/{len(bg_comparisons)} between-group comparisons significant")
+
                     # Print summary with significance
                     print(f"\n  Drift Summary for {score_col.upper()}:")
                     for _, row in deltas.iterrows():
                         arrow = "↓" if row['delta'] < 0 else "↑"
                         sig_marker = "*" if row.get('significant', False) else ""
-                        p_val = row.get('p_value_delong', np.nan)
-                        p_str = f"p={p_val:.3f}" if not np.isnan(p_val) else ""
+                        p_val = row.get('p_value_trend_fdr', row.get('p_value_trend', np.nan))
+                        p_str = f"p={p_val:.3f}" if pd.notna(p_val) and not np.isnan(p_val) else ""
                         print(f"    {row['subgroup_type']:8} | {row['subgroup']:10} | {row['auc_first']:.3f} → {row['auc_last']:.3f} ({arrow}{abs(row['delta']):.3f}{sig_marker}) {p_str}")
 
         # Run Xiaoli's recommended metrics analysis (SOFA only)
@@ -1191,12 +1574,14 @@ def run_batch_analysis(datasets_to_run=None):
         if dataset_results and dataset_deltas:
             combined_dataset_results = pd.concat(dataset_results, ignore_index=True)
             combined_dataset_deltas = pd.concat(dataset_deltas, ignore_index=True)
+            combined_bg = pd.concat(dataset_between_group, ignore_index=True) if dataset_between_group else None
             export_per_dataset_tables(
                 dataset_key,
                 config['name'],
                 combined_dataset_results,
                 combined_dataset_deltas,
-                OUTPUT_DIR
+                OUTPUT_DIR,
+                between_group_df=combined_bg
             )
 
     # Combine all results (kept for internal use, but not saved as cross-dataset comparison)
@@ -1265,9 +1650,11 @@ if __name__ == '__main__':
                     if not sig_decline.empty:
                         print(f"\n  Top significant declines:")
                         for _, row in sig_decline.iterrows():
-                            print(f"    {row['subgroup_type']}={row['subgroup']} ({row['score']}): {row['delta']:+.3f} p={row['p_value_delong']:.4f}")
+                            p_val = row.get('p_value_trend_fdr', row.get('p_value_delong', np.nan))
+                            print(f"    {row['subgroup_type']}={row['subgroup']} ({row['score']}): {row['delta']:+.3f} p={p_val:.4f}")
 
                     if not sig_improve.empty:
                         print(f"\n  Top significant improvements:")
                         for _, row in sig_improve.iterrows():
-                            print(f"    {row['subgroup_type']}={row['subgroup']} ({row['score']}): {row['delta']:+.3f} p={row['p_value_delong']:.4f}")
+                            p_val = row.get('p_value_trend_fdr', row.get('p_value_delong', np.nan))
+                            print(f"    {row['subgroup_type']}={row['subgroup']} ({row['score']}): {row['delta']:+.3f} p={p_val:.4f}")
