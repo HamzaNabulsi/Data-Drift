@@ -4,40 +4,31 @@ Subgroup-Specific Drift Analysis Figures
 Generates publication-quality visualizations showing NON-UNIFORM model drift
 across different patient subgroups.
 
-Per Leo's feedback (Dec 21, 2025):
-- Each dataset must be analyzed SEPARATELY (no cross-dataset comparisons in main)
-- Main figures: One comprehensive figure per dataset showing subgroup drift
-- Supplementary: Cross-dataset comparisons moved here
+Restructured (X2/X4/X5/X6/X8/X14):
+- Main figures limited to 6 (X2), focused on CROSS-GROUP / intersectional views (X4/X6)
+- Single-subgroup panels (age-only, gender-only, race-only) moved to supplementary
+- Forest plot of between-group comparisons promoted into main fig3 (X5)
+- Subgroups below min_sample_size excluded; sample-size annotations added (X8)
+- Colorblind-friendly palette for publication (X8)
+- Volatility heatmap from volatility_indicators.csv (X14)
 
-Main Figures (PER-DATASET analysis):
-- fig1_mimic_combined: MIMIC Combined subgroup drift analysis
-- fig2_eicu_combined: eICU Combined subgroup drift analysis
-- fig3_saltz: Saltz (Netherlands) subgroup drift analysis
-- fig4_zhejiang: Zhejiang (China) subgroup drift analysis
-- fig5_money_figure: Summary of key findings (kept for visual impact)
+Main Figures (6 total, X2):
+  fig1_study_flow.png        - Placeholder for manually-created study flow diagram
+  fig2_cross_dataset_sofa.png - SOFA drift across all datasets, cross-group view
+  fig3_cross_dataset_fairness.png - Fairness/bias metrics + simplified forest plot (X5)
+  fig4_nursing_mouthcare.png - Mouthcare care phenotype analysis
+  fig5_nursing_mechvent.png  - Mechanical ventilation care phenotype analysis
+  fig6_summary.png           - Summary / money figure
 
 Supplementary Figures (figures/supplementary/):
-- figS1: MIMIC mouthcare cohort (care phenotypes)
-- figS2: MIMIC mechanical ventilation cohort (care phenotypes)
-- figS3: Overall drift comparison (cross-dataset)
-- figS4: Age-stratified drift comparison (cross-dataset)
-- figS5: Race disparities comparison (cross-dataset)
-- figS6: Forest plot of significant findings (cross-dataset)
-- figS7: Gender drift patterns (cross-dataset)
-
-Output:
-- figures/fig1_mimic_combined.png
-- figures/fig2_eicu_combined.png
-- figures/fig3_saltz.png
-- figures/fig4_zhejiang.png
-- figures/fig5_money_figure.png
-- figures/supplementary/figS1_mimic_mouthcare.png
-- figures/supplementary/figS2_mimic_mechvent.png
-- figures/supplementary/figS3_overall_drift_comparison.png
-- figures/supplementary/figS4_age_comparison.png
-- figures/supplementary/figS5_race_comparison.png
-- figures/supplementary/figS6_significance_forest.png
-- figures/supplementary/figS7_gender_comparison.png
+  figS_age_{dataset}.png     - Age-only panels (previously main Panel A)
+  figS_gender_{dataset}.png  - Gender-only panels (previously main Panel B)
+  figS_race_{dataset}.png    - Race-only panels (previously main Panel C)
+  figS_per_dataset_{dataset}.png - Full per-dataset intersectional analysis
+  figS1: MIMIC mouthcare cohort (care phenotypes)
+  figS2: MIMIC mechanical ventilation cohort (care phenotypes)
+  figS3-S12: Cross-dataset comparisons (unchanged)
+  figS_volatility.png        - Volatility / fluctuation heatmap (X14)
 """
 
 import sys
@@ -48,9 +39,17 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
+from matplotlib.patches import Patch
 from pathlib import Path
 import os
 import shutil
+
+# Import config for min_sample_size
+try:
+    from config import ANALYSIS_CONFIG
+    MIN_SAMPLE_SIZE = ANALYSIS_CONFIG.get('min_sample_size', 30)
+except ImportError:
+    MIN_SAMPLE_SIZE = 30
 
 # Set style for clear, publication-quality figures
 plt.style.use('seaborn-v0_8-whitegrid')
@@ -73,31 +72,66 @@ FIGURES_DIR.mkdir(exist_ok=True)
 SUPPLEMENTARY_FIGURES_DIR = FIGURES_DIR / 'supplementary'
 SUPPLEMENTARY_FIGURES_DIR.mkdir(exist_ok=True)
 
-# Colors
+# ---------------------------------------------------------------------------
+# Colorblind-friendly palette (X8) — Wong (2011) Nature Methods
+# ---------------------------------------------------------------------------
+_CB_BLUE    = '#0072B2'
+_CB_ORANGE  = '#E69F00'
+_CB_GREEN   = '#009E73'
+_CB_RED     = '#D55E00'
+_CB_PURPLE  = '#CC79A7'
+_CB_SKYBLUE = '#56B4E9'
+_CB_YELLOW  = '#F0E442'
+_CB_BLACK   = '#000000'
+
 DATASET_COLORS = {
-    'mimiciii': '#17becf',    # Cyan - historical baseline
-    'mimiciv': '#1f77b4',     # Blue
-    'mimic_combined': '#1f77b4',  # Blue - same as MIMIC-IV (combined dataset)
-    'saltz': '#ff7f0e',
-    'zhejiang': '#2ca02c',
-    'eicu': '#d62728',
-    'eicu_new': '#9467bd',
-    'eicu_combined': '#d62728'  # Red - same as eICU (combined dataset)
+    'mimiciii': _CB_SKYBLUE,
+    'mimiciv': _CB_BLUE,
+    'mimic_combined': _CB_BLUE,
+    'saltz': _CB_ORANGE,
+    'zhejiang': _CB_GREEN,
+    'eicu': _CB_RED,
+    'eicu_new': _CB_PURPLE,
+    'eicu_combined': _CB_RED,
 }
 
 SUBGROUP_COLORS = {
-    '18-44': '#4c72b0',
-    '45-64': '#55a868',
-    '65-79': '#c44e52',
-    '80+': '#8172b3',
-    'Male': '#64b5cd',
-    'Female': '#dd8452',
-    'White': '#4c72b0',
-    'Black': '#55a868',
-    'Hispanic': '#c44e52',
-    'Asian': '#8172b3',
-    'All': '#666666'
+    '18-44': _CB_BLUE,
+    '45-64': _CB_GREEN,
+    '65-79': _CB_RED,
+    '80+': _CB_PURPLE,
+    'Male': _CB_SKYBLUE,
+    'Female': _CB_ORANGE,
+    'White': _CB_BLUE,
+    'Black': _CB_GREEN,
+    'Hispanic': _CB_RED,
+    'Asian': _CB_PURPLE,
+    'All': '#666666',
 }
+
+
+# ---------------------------------------------------------------------------
+# Helpers for sample-size filtering / annotation (X8)
+# ---------------------------------------------------------------------------
+
+def _format_n(n):
+    """Format an integer with comma separators."""
+    return f'{int(n):,}'
+
+
+def _label_with_n(label, n):
+    """Return 'Label (n=1,234)' string."""
+    return f'{label} (n={_format_n(n)})'
+
+
+def _filter_small_subgroups(df, n_col='n'):
+    """Drop rows whose sample size is below MIN_SAMPLE_SIZE (X8).
+
+    If the column *n_col* does not exist the dataframe is returned unchanged.
+    """
+    if n_col in df.columns:
+        return df[df[n_col] >= MIN_SAMPLE_SIZE].copy()
+    return df.copy()
 
 
 def load_data():
@@ -136,6 +170,754 @@ def load_data():
 
     return results, deltas
 
+
+# =====================================================================
+# NEW MAIN FIGURES (X2 — limited to 6)
+# =====================================================================
+
+def fig1_study_flow():
+    """Figure 1: Study flow diagram placeholder.
+
+    This figure is intended to be created manually (e.g. in PowerPoint / Illustrator).
+    We generate a placeholder PNG so the pipeline has a consistent file list.
+    """
+    fig, ax = plt.subplots(figsize=(10, 8))
+    ax.text(0.5, 0.5,
+            'Study flow diagram\n\n(To be created manually in illustration software)',
+            ha='center', va='center', fontsize=18, style='italic',
+            bbox=dict(boxstyle='round,pad=1', facecolor='#f0f0f0', edgecolor='#999999'))
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+    ax.axis('off')
+    fig.savefig(FIGURES_DIR / 'fig1_study_flow.png', dpi=300, bbox_inches='tight')
+    plt.close()
+    print("Saved: fig1_study_flow.png (placeholder)")
+
+
+def fig2_cross_dataset_sofa(results, deltas):
+    """Figure 2: SOFA drift across all datasets — cross-group (intersectional) view.
+
+    Panel A: Overall + intersectional AUC trends per dataset
+    Panel B: AUC delta heatmap (subgroup x dataset) for SOFA
+    Panel C: Gender-Race cross-group drift
+    Panel D: Age-Race cross-group drift
+    """
+    fig, axes = plt.subplots(2, 2, figsize=(16, 13))
+    has_ci = 'auc_ci_lower' in results.columns
+
+    # --- Panel A: Overall SOFA AUC trends ---
+    ax = axes[0, 0]
+    sofa_all = results[(results['score'] == 'sofa') & (results['subgroup'] == 'All')].copy()
+    for dataset in sofa_all['dataset'].unique():
+        df_sub = sofa_all[sofa_all['dataset'] == dataset].sort_values('time_period')
+        color = DATASET_COLORS.get(dataset, '#666666')
+        label = df_sub['dataset_name'].iloc[0].split(' (')[0] if len(df_sub) else dataset
+        n_total = int(df_sub['n'].sum()) if 'n' in df_sub.columns else None
+        lbl = _label_with_n(label, n_total) if n_total else label
+        x = range(len(df_sub))
+        ax.plot(x, df_sub['auc'], 'o-', color=color, label=lbl, linewidth=2, markersize=7)
+        if has_ci and not df_sub['auc_ci_lower'].isna().all():
+            ax.fill_between(x, df_sub['auc_ci_lower'], df_sub['auc_ci_upper'],
+                            color=color, alpha=0.15)
+    ax.set_xlabel('Time Period')
+    ax.set_ylabel('SOFA AUC')
+    ax.set_title('A. Overall SOFA AUC Over Time' + (' (95% CI)' if has_ci else ''))
+    ax.legend(loc='lower left', fontsize=8)
+    ax.set_ylim(0.5, 0.9)
+
+    # --- Panel B: Delta heatmap (subgroup x dataset, SOFA only) ---
+    ax = axes[0, 1]
+    if deltas is not None and not deltas.empty:
+        sofa_deltas = deltas[deltas['score'] == 'sofa'].copy()
+        sofa_deltas = _filter_small_subgroups(sofa_deltas, 'n_first')
+        sofa_deltas['ds_short'] = sofa_deltas['dataset_name'].str.split(r' \(').str[0]
+        pivot = sofa_deltas.pivot_table(index='subgroup', columns='ds_short',
+                                        values='delta', aggfunc='mean')
+        row_order = ['All', '18-44', '45-64', '65-79', '80+',
+                     'Male', 'Female', 'White', 'Black', 'Hispanic', 'Asian']
+        pivot = pivot.reindex([r for r in row_order if r in pivot.index])
+        sns.heatmap(pivot, annot=True, fmt='.3f', cmap='RdYlGn', center=0,
+                    ax=ax, vmin=-0.15, vmax=0.15,
+                    cbar_kws={'label': 'SOFA AUC Change'})
+        ax.set_title('B. SOFA AUC Change by Subgroup & Dataset')
+        ax.set_ylabel('')
+    else:
+        ax.text(0.5, 0.5, 'No delta data', ha='center', va='center')
+        ax.set_title('B. SOFA AUC Change')
+
+    # --- Panel C: Gender-Race cross-group drift ---
+    ax = axes[1, 0]
+    if deltas is not None:
+        int_deltas = deltas[(deltas['score'] == 'sofa') &
+                            (deltas['subgroup_type'] == 'Intersectional')].copy()
+        int_deltas = _filter_small_subgroups(int_deltas, 'n_first')
+        gender_race = int_deltas[int_deltas['subgroup'].str.count('_') == 1].copy()
+        _parts = gender_race['subgroup'].str.split('_', expand=True)
+        if _parts.shape[1] >= 2:
+            gender_race['gender'] = _parts[0]
+            gender_race['race'] = _parts[1]
+            gender_race = gender_race[gender_race['gender'].isin(['Male', 'Female'])]
+            gender_race = gender_race[gender_race['race'].isin(['White', 'Black', 'Hispanic', 'Asian'])]
+        if not gender_race.empty:
+            gr_pivot = gender_race.pivot_table(index='race', columns='gender',
+                                               values='delta', aggfunc='mean')
+            sns.heatmap(gr_pivot, annot=True, fmt='.3f', cmap='RdYlGn', center=0,
+                        ax=ax, vmin=-0.15, vmax=0.15,
+                        cbar_kws={'label': 'AUC Change'})
+            ax.set_title('C. Gender x Race Cross-Group Drift (SOFA)')
+        else:
+            ax.text(0.5, 0.5, 'No Gender-Race intersectional data', ha='center', va='center')
+            ax.set_title('C. Gender x Race Cross-Group Drift')
+    else:
+        ax.text(0.5, 0.5, 'No delta data', ha='center', va='center')
+        ax.set_title('C. Gender x Race Cross-Group Drift')
+
+    # --- Panel D: Age-Race cross-group drift ---
+    ax = axes[1, 1]
+    if deltas is not None:
+        int_deltas = deltas[(deltas['score'] == 'sofa') &
+                            (deltas['subgroup_type'] == 'Intersectional')].copy()
+        int_deltas = _filter_small_subgroups(int_deltas, 'n_first')
+        age_race = int_deltas[int_deltas['subgroup'].str.count('_') == 1].copy()
+        _parts = age_race['subgroup'].str.split('_', expand=True)
+        if _parts.shape[1] >= 2:
+            age_race['age'] = _parts[0]
+            age_race['race'] = _parts[1]
+            age_race = age_race[age_race['age'].isin(['18-44', '45-64', '65-79', '80+'])]
+            age_race = age_race[age_race['race'].isin(['White', 'Black', 'Hispanic', 'Asian'])]
+        if not age_race.empty:
+            ar_pivot = age_race.pivot_table(index='race', columns='age',
+                                            values='delta', aggfunc='mean')
+            col_order = [c for c in ['18-44', '45-64', '65-79', '80+'] if c in ar_pivot.columns]
+            ar_pivot = ar_pivot[col_order]
+            sns.heatmap(ar_pivot, annot=True, fmt='.3f', cmap='RdYlGn', center=0,
+                        ax=ax, vmin=-0.15, vmax=0.15,
+                        cbar_kws={'label': 'AUC Change'})
+            ax.set_title('D. Age x Race Cross-Group Drift (SOFA)')
+        else:
+            ax.text(0.5, 0.5, 'No Age-Race intersectional data', ha='center', va='center')
+            ax.set_title('D. Age x Race Cross-Group Drift')
+    else:
+        ax.text(0.5, 0.5, 'No delta data', ha='center', va='center')
+        ax.set_title('D. Age x Race Cross-Group Drift')
+
+    plt.suptitle('SOFA Performance Drift — Cross-Group Analysis', fontsize=15, y=1.01)
+    plt.tight_layout()
+    fig.savefig(FIGURES_DIR / 'fig2_cross_dataset_sofa.png', dpi=300, bbox_inches='tight')
+    plt.close()
+    print("Saved: fig2_cross_dataset_sofa.png")
+
+
+def fig3_cross_dataset_fairness(results, deltas):
+    """Figure 3: Fairness / bias metrics across datasets + simplified forest plot (X5).
+
+    Panel A: Demographic parity heatmap (last period)
+    Panel B: Equalized odds heatmap (last period)
+    Panel C: Simplified forest plot of significant between-group comparisons (X5)
+    """
+    fig = plt.figure(figsize=(18, 12))
+    gs = fig.add_gridspec(2, 2, hspace=0.35, wspace=0.30)
+
+    datasets = ['mimic_combined', 'eicu_combined', 'saltz', 'zhejiang']
+
+    # --- Panel A: Demographic parity heatmap ---
+    ax = fig.add_subplot(gs[0, 0])
+    heatmap_rows = []
+    for ds in datasets:
+        ffile = OUTPUT_DIR / ds / 'fairness_metrics.csv'
+        if ffile.exists():
+            fdf = pd.read_csv(ffile)
+            for gt in ['Age', 'Gender', 'Race']:
+                gdata = fdf[fdf['group_type'] == gt]
+                if len(gdata) > 0:
+                    last_val = gdata.sort_values('time_period').iloc[-1].get('demographic_parity_diff', np.nan)
+                    heatmap_rows.append({
+                        'Dataset': ds.replace('_combined', '').title(),
+                        'Group': gt,
+                        'DPD': last_val,
+                    })
+    if heatmap_rows:
+        hdf = pd.DataFrame(heatmap_rows)
+        piv = hdf.pivot(index='Dataset', columns='Group', values='DPD')
+        sns.heatmap(piv, annot=True, fmt='.3f', cmap='RdYlGn_r', center=0,
+                    ax=ax, vmin=0, vmax=0.10,
+                    cbar_kws={'label': 'Disparity (0 = fair)'})
+        ax.set_title('A. Demographic Parity Difference (Last Period)')
+    else:
+        ax.text(0.5, 0.5, 'No fairness data', ha='center', va='center')
+        ax.set_title('A. Demographic Parity Difference')
+
+    # --- Panel B: Equalized odds heatmap ---
+    ax = fig.add_subplot(gs[0, 1])
+    eo_rows = []
+    for ds in datasets:
+        ffile = OUTPUT_DIR / ds / 'fairness_metrics.csv'
+        if ffile.exists():
+            fdf = pd.read_csv(ffile)
+            for gt in ['Age', 'Gender', 'Race']:
+                gdata = fdf[fdf['group_type'] == gt]
+                if len(gdata) > 0:
+                    last_val = gdata.sort_values('time_period').iloc[-1].get('equalized_odds_diff', np.nan)
+                    eo_rows.append({
+                        'Dataset': ds.replace('_combined', '').title(),
+                        'Group': gt,
+                        'EOD': last_val,
+                    })
+    if eo_rows:
+        edf = pd.DataFrame(eo_rows)
+        piv = edf.pivot(index='Dataset', columns='Group', values='EOD')
+        sns.heatmap(piv, annot=True, fmt='.3f', cmap='RdYlGn_r', center=0,
+                    ax=ax, vmin=0, vmax=0.10,
+                    cbar_kws={'label': 'Disparity (0 = fair)'})
+        ax.set_title('B. Equalized Odds Difference (Last Period)')
+    else:
+        ax.text(0.5, 0.5, 'No fairness data', ha='center', va='center')
+        ax.set_title('B. Equalized Odds Difference')
+
+    # --- Panel C: Simplified forest plot from between-group comparisons (X5) ---
+    ax = fig.add_subplot(gs[1, :])
+    all_bg = []
+    for ds in datasets:
+        bg_file = OUTPUT_DIR / ds / 'between_group_comparisons.csv'
+        if bg_file.exists():
+            all_bg.append(pd.read_csv(bg_file))
+
+    if all_bg:
+        bg = pd.concat(all_bg, ignore_index=True)
+        sofa_bg = bg[bg['score'] == 'sofa'].copy()
+        sig_bg = sofa_bg[
+            (sofa_bg['significant'] == True) &
+            (sofa_bg['subgroup_type'].isin(['Race', 'Gender', 'Age']))
+        ].copy()
+        if sig_bg.empty:
+            sig_bg = sofa_bg[sofa_bg['subgroup_type'].isin(['Race', 'Gender', 'Age'])].copy()
+
+        if len(sig_bg) > 20:
+            top_neg = sig_bg.nsmallest(10, 'delta_diff')
+            top_pos = sig_bg.nlargest(10, 'delta_diff')
+            sig_bg = pd.concat([top_neg, top_pos]).drop_duplicates()
+        sig_bg = sig_bg.sort_values('delta_diff')
+
+        if not sig_bg.empty:
+            sig_bg['label'] = (
+                sig_bg['dataset_name'].str.split(r' \(').str[0] + ' | ' +
+                sig_bg['group_a'] + ' vs ' + sig_bg['group_b']
+            )
+            y_pos = np.arange(len(sig_bg))
+            colors = []
+            for _, row in sig_bg.iterrows():
+                if not row.get('significant', False):
+                    colors.append('#999999')
+                elif row['delta_diff'] > 0:
+                    colors.append(_CB_GREEN)
+                else:
+                    colors.append(_CB_RED)
+            ax.barh(y_pos, sig_bg['delta_diff'], color=colors, alpha=0.7, height=0.7)
+            if 'delta_diff_ci_lower' in sig_bg.columns:
+                xerr = np.array([
+                    sig_bg['delta_diff'].values - sig_bg['delta_diff_ci_lower'].values,
+                    sig_bg['delta_diff_ci_upper'].values - sig_bg['delta_diff'].values
+                ])
+                xerr = np.nan_to_num(xerr, nan=0)
+                xerr = np.clip(xerr, 0, None)
+                ax.errorbar(sig_bg['delta_diff'], y_pos, xerr=xerr, fmt='none',
+                            color='black', capsize=2, capthick=1, elinewidth=1)
+            ax.axvline(x=0, color='black', linewidth=1)
+            ax.set_yticks(y_pos)
+            ax.set_yticklabels(sig_bg['label'], fontsize=8)
+            ax.set_xlabel('Difference in AUC Drift (Group A - Group B)')
+            ax.set_title('C. Between-Group Drift Comparison (SOFA, Forest Plot)')
+            legend_elements = [
+                Patch(facecolor=_CB_GREEN, alpha=0.7, label='Group A more positive'),
+                Patch(facecolor=_CB_RED, alpha=0.7, label='Group A more negative'),
+                Patch(facecolor='#999999', alpha=0.7, label='Not significant'),
+            ]
+            ax.legend(handles=legend_elements, loc='lower right', fontsize=8)
+        else:
+            ax.text(0.5, 0.5, 'No between-group data', ha='center', va='center')
+            ax.set_title('C. Between-Group Drift Comparison')
+    else:
+        ax.text(0.5, 0.5, 'No between-group comparison files found', ha='center', va='center')
+        ax.set_title('C. Between-Group Drift Comparison')
+
+    plt.suptitle('Fairness & Between-Group Drift Analysis', fontsize=15, y=1.01)
+    plt.tight_layout()
+    fig.savefig(FIGURES_DIR / 'fig3_cross_dataset_fairness.png', dpi=300, bbox_inches='tight')
+    plt.close()
+    print("Saved: fig3_cross_dataset_fairness.png")
+
+
+def fig4_nursing_mouthcare():
+    """Figure 4: Mouthcare care-phenotype analysis.
+
+    Reads the supplementary mouthcare figure if it exists and copies it to main,
+    otherwise generates a placeholder.
+    """
+    src = SUPPLEMENTARY_FIGURES_DIR / 'figS1_mimic_mouthcare.png'
+    dst = FIGURES_DIR / 'fig4_nursing_mouthcare.png'
+    if src.exists():
+        shutil.copy2(src, dst)
+        print(f"Saved: fig4_nursing_mouthcare.png (copied from {src.name})")
+    else:
+        fig, ax = plt.subplots(figsize=(10, 8))
+        ax.text(0.5, 0.5,
+                'Mouthcare care-phenotype analysis\n\n'
+                '(Run supplementary_analysis.py first to generate figS1)',
+                ha='center', va='center', fontsize=14, style='italic',
+                bbox=dict(boxstyle='round,pad=1', facecolor='#f0f0f0', edgecolor='#999999'))
+        ax.axis('off')
+        fig.savefig(dst, dpi=300, bbox_inches='tight')
+        plt.close()
+        print("Saved: fig4_nursing_mouthcare.png (placeholder)")
+
+
+def fig5_nursing_mechvent():
+    """Figure 5: Mechanical ventilation care-phenotype analysis.
+
+    Reads the supplementary mechvent figure if it exists and copies it to main,
+    otherwise generates a placeholder.
+    """
+    src = SUPPLEMENTARY_FIGURES_DIR / 'figS2_mimic_mechvent.png'
+    dst = FIGURES_DIR / 'fig5_nursing_mechvent.png'
+    if src.exists():
+        shutil.copy2(src, dst)
+        print(f"Saved: fig5_nursing_mechvent.png (copied from {src.name})")
+    else:
+        fig, ax = plt.subplots(figsize=(10, 8))
+        ax.text(0.5, 0.5,
+                'Mechanical ventilation care-phenotype analysis\n\n'
+                '(Run supplementary_analysis.py first to generate figS2)',
+                ha='center', va='center', fontsize=14, style='italic',
+                bbox=dict(boxstyle='round,pad=1', facecolor='#f0f0f0', edgecolor='#999999'))
+        ax.axis('off')
+        fig.savefig(dst, dpi=300, bbox_inches='tight')
+        plt.close()
+        print("Saved: fig5_nursing_mechvent.png (placeholder)")
+
+
+def fig6_summary(results, deltas):
+    """Figure 6: Summary / money figure — key findings across all datasets."""
+    fig = plt.figure(figsize=(16, 12))
+    gs = fig.add_gridspec(2, 2, hspace=0.35, wspace=0.35, height_ratios=[1, 1.2])
+    has_ci = 'auc_ci_lower' in results.columns
+
+    # Panel A: Diverging slopes — age (top left)
+    ax1 = fig.add_subplot(gs[0, 0])
+    age_data = results[(results['subgroup_type'] == 'Age') & (results['score'] == 'sofa')].copy()
+    age_data = _filter_small_subgroups(age_data)
+
+    for dataset in ['mimic_combined', 'saltz', 'zhejiang']:
+        df_sub = age_data[age_data['dataset'] == dataset]
+        if df_sub.empty:
+            continue
+        periods = sorted(df_sub['time_period'].unique())
+        if len(periods) < 2:
+            continue
+        first_period, last_period = periods[0], periods[-1]
+        first_data = df_sub[df_sub['time_period'] == first_period]
+        last_data = df_sub[df_sub['time_period'] == last_period]
+        color = DATASET_COLORS.get(dataset, '#666666')
+        label = df_sub['dataset_name'].iloc[0].split(' (')[0]
+
+        for age_group in ['18-44', '45-64', '65-79', '80+']:
+            first_row = first_data[first_data['subgroup'] == age_group]
+            last_row = last_data[last_data['subgroup'] == age_group]
+            if len(first_row) > 0 and len(last_row) > 0:
+                first_auc = first_row['auc'].values[0]
+                last_auc = last_row['auc'].values[0]
+                alpha = 1.0 if age_group in ['18-44', '80+'] else 0.3
+                lw = 2.5 if age_group in ['18-44', '80+'] else 1.0
+                show_label = f'{label} {age_group}' if age_group in ['18-44', '80+'] else ''
+                ax1.plot([0, 1], [first_auc, last_auc], 'o-',
+                         color=color, alpha=alpha, linewidth=lw, label=show_label)
+
+    ax1.set_xticks([0, 1])
+    ax1.set_xticklabels(['First Period', 'Last Period'])
+    ax1.set_ylabel('SOFA AUC')
+    ax1.set_title('A. Age Groups Diverge: Young Improve, Elderly Decline')
+    ax1.legend(loc='upper left', fontsize=7, framealpha=0.9)
+    ax1.set_ylim(0.45, 0.95)
+
+    # Panel B: Race disparities (top right)
+    ax2 = fig.add_subplot(gs[0, 1])
+    if deltas is not None:
+        race_deltas = deltas[(deltas['subgroup_type'] == 'Race') & (deltas['score'] == 'sofa')].copy()
+        race_deltas = _filter_small_subgroups(race_deltas, 'n_first')
+        has_delta_ci = 'delta_ci_lower' in race_deltas.columns
+
+        if not race_deltas.empty:
+            race_avg = race_deltas.groupby('subgroup')['delta'].mean().sort_values()
+            colors = [SUBGROUP_COLORS.get(r, '#666') for r in race_avg.index]
+            n_per_race = race_deltas.groupby('subgroup')['n_first'].sum() if 'n_first' in race_deltas.columns else None
+            labels = []
+            for r in race_avg.index:
+                if n_per_race is not None and r in n_per_race.index:
+                    labels.append(_label_with_n(r, n_per_race[r]))
+                else:
+                    labels.append(r)
+
+            if has_delta_ci:
+                race_ci_lower = race_deltas.groupby('subgroup')['delta_ci_lower'].mean()
+                race_ci_upper = race_deltas.groupby('subgroup')['delta_ci_upper'].mean()
+                xerr = np.array([
+                    race_avg.values - race_ci_lower.loc[race_avg.index].values,
+                    race_ci_upper.loc[race_avg.index].values - race_avg.values
+                ])
+                xerr = np.nan_to_num(xerr, nan=0)
+                xerr = np.clip(xerr, 0, None)
+                bars = ax2.barh(labels, race_avg.values, color=colors,
+                                xerr=xerr, capsize=3, error_kw={'elinewidth': 1})
+            else:
+                bars = ax2.barh(labels, race_avg.values, color=colors)
+            ax2.axvline(x=0, color='black', linewidth=0.5)
+            ax2.set_xlabel('Average SOFA AUC Change')
+            ax2.set_title('B. SOFA Drift by Race')
+        else:
+            ax2.text(0.5, 0.5, 'No race delta data', ha='center', va='center')
+            ax2.set_title('B. SOFA Drift by Race')
+    else:
+        ax2.text(0.5, 0.5, 'No delta data', ha='center', va='center')
+        ax2.set_title('B. SOFA Drift by Race')
+
+    # Panel C: Comprehensive heatmap (bottom, full width)
+    ax3 = fig.add_subplot(gs[1, :])
+    if deltas is not None and not deltas.empty:
+        sofa_deltas = deltas[deltas['score'] == 'sofa'].copy()
+        sofa_deltas = _filter_small_subgroups(sofa_deltas, 'n_first')
+        pivot = sofa_deltas.pivot_table(index='subgroup', columns='dataset_name',
+                                        values='delta', aggfunc='mean')
+        pivot.columns = [c.split(' (')[0] for c in pivot.columns]
+        row_order = ['All', '18-44', '45-64', '65-79', '80+',
+                     'Male', 'Female', 'White', 'Black', 'Hispanic', 'Asian']
+        pivot = pivot.reindex([r for r in row_order if r in pivot.index])
+        sns.heatmap(pivot, annot=True, fmt='.3f', cmap='RdYlGn', center=0,
+                    ax=ax3, vmin=-0.15, vmax=0.15,
+                    cbar_kws={'label': 'SOFA AUC Change'})
+        ax3.set_title('C. SOFA Performance Change Across All Datasets and Subgroups')
+        ax3.set_xlabel('Dataset')
+        ax3.set_ylabel('Subgroup')
+
+    plt.suptitle('Summary: Multi-Dataset ICU Score Drift by Subgroup', fontsize=14, y=0.98)
+    fig.savefig(FIGURES_DIR / 'fig6_summary.png', dpi=300, bbox_inches='tight')
+    plt.close()
+    print("Saved: fig6_summary.png")
+
+
+# =====================================================================
+# NEW SUPPLEMENTARY: single-subgroup per-dataset figures (X4/X6)
+# =====================================================================
+
+def _figS_single_subgroup(results, dataset_key, subgroup_type, filename_tag):
+    """Generate a supplementary single-subgroup figure for one dataset.
+
+    E.g. figS_age_mimic_combined.png showing age-only panels.
+    """
+    ds = results[results['dataset'] == dataset_key].copy()
+    if ds.empty:
+        return
+    primary_score = 'sofa' if 'sofa' in ds['score'].unique() else ds['score'].iloc[0]
+    score_data = ds[ds['score'] == primary_score]
+    sub_data = score_data[score_data['subgroup_type'] == subgroup_type]
+    sub_data = _filter_small_subgroups(sub_data)
+    if sub_data.empty:
+        return
+
+    dataset_name = ds['dataset_name'].iloc[0].split(' (')[0]
+    has_ci = 'auc_ci_lower' in sub_data.columns
+    time_periods = sorted(sub_data['time_period'].unique())
+    n_periods = len(time_periods)
+
+    subgroups = sorted(sub_data['subgroup'].unique())
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+    if n_periods > 1:
+        for sg in subgroups:
+            sg_df = sub_data[sub_data['subgroup'] == sg].sort_values('time_period')
+            color = SUBGROUP_COLORS.get(sg, '#666666')
+            n_total = int(sg_df['n'].sum()) if 'n' in sg_df.columns else None
+            lbl = _label_with_n(sg, n_total) if n_total else sg
+            x = range(len(sg_df))
+            ax.plot(x, sg_df['auc'], 'o-', label=lbl, color=color, markersize=7, linewidth=2)
+            if has_ci and not sg_df['auc_ci_lower'].isna().all():
+                ax.fill_between(x, sg_df['auc_ci_lower'], sg_df['auc_ci_upper'],
+                                color=color, alpha=0.15)
+        ax.set_xticks(range(n_periods))
+        ax.set_xticklabels(time_periods, rotation=45, ha='right', fontsize=8)
+        ax.set_xlabel('Year')
+    else:
+        aucs = [sub_data[sub_data['subgroup'] == sg]['auc'].values[0]
+                if not sub_data[sub_data['subgroup'] == sg].empty else np.nan
+                for sg in subgroups]
+        colors = [SUBGROUP_COLORS.get(sg, '#666') for sg in subgroups]
+        labels = []
+        for sg in subgroups:
+            sg_df = sub_data[sub_data['subgroup'] == sg]
+            n_val = int(sg_df['n'].values[0]) if 'n' in sg_df.columns and not sg_df.empty else None
+            labels.append(_label_with_n(sg, n_val) if n_val else sg)
+        ax.bar(labels, aucs, color=colors)
+        ax.set_xlabel(subgroup_type)
+
+    ax.set_ylabel(f'{primary_score.upper()} AUC')
+    ci_note = ' (95% CI)' if has_ci and n_periods > 1 else ''
+    ax.set_title(f'{dataset_name}: {subgroup_type} Subgroup Performance{ci_note}')
+    ax.set_ylim(0.5, 1.0)
+    if n_periods > 1:
+        ax.legend(title=subgroup_type, loc='best', fontsize=9)
+
+    plt.tight_layout()
+    out = SUPPLEMENTARY_FIGURES_DIR / f'figS_{filename_tag}_{dataset_key}.png'
+    fig.savefig(out, dpi=300, bbox_inches='tight')
+    plt.close()
+    print(f"Saved: supplementary/figS_{filename_tag}_{dataset_key}.png")
+
+
+def generate_single_subgroup_supplementary(results):
+    """Generate all single-subgroup supplementary figures (X4/X6)."""
+    for dataset_key in ['mimic_combined', 'eicu_combined', 'saltz', 'zhejiang']:
+        for stype, tag in [('Age', 'age'), ('Gender', 'gender'), ('Race', 'race')]:
+            _figS_single_subgroup(results, dataset_key, stype, tag)
+
+
+def figS_per_dataset_intersectional(results, deltas):
+    """Move old per-dataset main figures (fig1-fig4) into supplementary (X4/X6).
+
+    Each dataset gets a 4-panel figure:
+      A: Overall + intersectional AUC trends
+      B: Between-group comparisons
+      C: Gender x Race drift heatmap
+      D: Age x Race drift heatmap
+    """
+    dataset_configs = [
+        ('mimic_combined', 1),
+        ('eicu_combined', 2),
+        ('saltz', 3),
+        ('zhejiang', 4),
+    ]
+    for dataset_key, fig_num in dataset_configs:
+        ds_results = results[results['dataset'] == dataset_key].copy()
+        ds_deltas = deltas[deltas['dataset'] == dataset_key].copy() if deltas is not None else None
+        if ds_results.empty:
+            continue
+        dataset_name = ds_results['dataset_name'].iloc[0].split(' (')[0]
+        has_ci = 'auc_ci_lower' in ds_results.columns
+        primary_score = 'sofa' if 'sofa' in ds_results['score'].unique() else ds_results['score'].iloc[0]
+        score_data = ds_results[ds_results['score'] == primary_score]
+        score_data = _filter_small_subgroups(score_data)
+        time_periods = sorted(score_data['time_period'].unique())
+        n_periods = len(time_periods)
+
+        fig, axes = plt.subplots(2, 2, figsize=(14, 12))
+
+        # Panel A: Overall + intersectional AUC
+        ax = axes[0, 0]
+        overall = score_data[score_data['subgroup'] == 'All'].sort_values('time_period')
+        intersect = score_data[score_data['subgroup_type'] == 'Intersectional']
+        if not overall.empty and n_periods > 1:
+            x = range(len(overall))
+            n_tot = int(overall['n'].sum()) if 'n' in overall.columns else None
+            lbl = _label_with_n('Overall', n_tot) if n_tot else 'Overall'
+            ax.plot(x, overall['auc'], 'o-', color='#666666', label=lbl, linewidth=2.5, markersize=8)
+            if has_ci and not overall['auc_ci_lower'].isna().all():
+                ax.fill_between(x, overall['auc_ci_lower'], overall['auc_ci_upper'],
+                                color='#666666', alpha=0.15)
+
+        if not intersect.empty and ds_deltas is not None and n_periods > 1:
+            int_d = ds_deltas[(ds_deltas['score'] == primary_score) &
+                              (ds_deltas['subgroup_type'] == 'Intersectional')].copy()
+            int_d = _filter_small_subgroups(int_d, 'n_first')
+            p_col = 'p_value_trend_fdr' if 'p_value_trend_fdr' in int_d.columns else 'p_value_delong'
+            int_d_valid = int_d.dropna(subset=[p_col])
+            if not int_d_valid.empty:
+                degrading = int_d_valid[int_d_valid['delta'] < 0].nsmallest(3, p_col)
+                improving = int_d_valid[int_d_valid['delta'] > 0].nsmallest(3, p_col)
+                top6 = pd.concat([degrading, improving])
+                red_shades = [_CB_RED, '#e74c3c', '#c0392b']
+                green_shades = [_CB_GREEN, '#27ae60', '#1e8449']
+                di, ii = 0, 0
+                for _, row in top6.iterrows():
+                    sg = row['subgroup']
+                    s_data = intersect[intersect['subgroup'] == sg].sort_values('time_period')
+                    if s_data.empty:
+                        continue
+                    is_deg = row['delta'] < 0
+                    color = red_shades[di % 3] if is_deg else green_shades[ii % 3]
+                    if is_deg:
+                        di += 1
+                    else:
+                        ii += 1
+                    sig = '*' if row.get('significant', False) else ''
+                    n_sg = int(s_data['n'].sum()) if 'n' in s_data.columns else None
+                    lbl = f"{sg} (n={_format_n(n_sg)}, {row['delta']:+.3f}{sig})" if n_sg else f"{sg} ({row['delta']:+.3f}{sig})"
+                    ax.plot(range(len(s_data)), s_data['auc'].values, 'o-',
+                            label=lbl, color=color, markersize=5, linewidth=1.5,
+                            linestyle='-' if is_deg else '--')
+        ax.set_xticks(range(n_periods))
+        ax.set_xticklabels(time_periods, rotation=45, ha='right', fontsize=8)
+        ax.set_xlabel('Year')
+        ax.set_ylabel(f'{primary_score.upper()} AUC')
+        ax.set_title('A. Overall + Intersectional AUC Trends')
+        ax.legend(fontsize=6, loc='best')
+        ax.set_ylim(0.4, 1.0)
+
+        # Panel B: Between-group bar chart
+        ax = axes[0, 1]
+        bg_file = OUTPUT_DIR / dataset_key / 'between_group_comparisons.csv'
+        if bg_file.exists():
+            bg = pd.read_csv(bg_file)
+            sofa_bg = bg[(bg['score'] == primary_score) &
+                         (bg['subgroup_type'].isin(['Race', 'Gender', 'Age']))].copy()
+            sofa_bg = sofa_bg.sort_values('delta_diff')
+            if len(sofa_bg) > 15:
+                sofa_bg = pd.concat([sofa_bg.head(7), sofa_bg.tail(7)])
+            if not sofa_bg.empty:
+                sofa_bg['label'] = sofa_bg['group_a'] + ' vs ' + sofa_bg['group_b']
+                y_pos = np.arange(len(sofa_bg))
+                colors = []
+                for _, r in sofa_bg.iterrows():
+                    if not r.get('significant', False):
+                        colors.append('#999999')
+                    elif r['delta_diff'] > 0:
+                        colors.append(_CB_GREEN)
+                    else:
+                        colors.append(_CB_RED)
+                ax.barh(y_pos, sofa_bg['delta_diff'], color=colors, alpha=0.7, height=0.7)
+                ax.axvline(x=0, color='black', linewidth=1)
+                ax.set_yticks(y_pos)
+                ax.set_yticklabels(sofa_bg['label'], fontsize=8)
+                ax.set_xlabel('Difference in AUC Drift')
+                ax.set_title('B. Between-Group Comparisons')
+            else:
+                ax.text(0.5, 0.5, 'No between-group data', ha='center', va='center')
+                ax.set_title('B. Between-Group Comparisons')
+        else:
+            ax.text(0.5, 0.5, 'No between-group file', ha='center', va='center')
+            ax.set_title('B. Between-Group Comparisons')
+
+        # Panel C: Gender-Race cross-group
+        ax = axes[1, 0]
+        if ds_deltas is not None:
+            int_deltas = ds_deltas[(ds_deltas['score'] == primary_score) &
+                                   (ds_deltas['subgroup_type'] == 'Intersectional')].copy()
+            int_deltas = _filter_small_subgroups(int_deltas, 'n_first')
+            gr = int_deltas[int_deltas['subgroup'].str.count('_') == 1].copy()
+            if not gr.empty:
+                _p = gr['subgroup'].str.split('_', expand=True)
+                if _p.shape[1] >= 2:
+                    gr['g'] = _p[0]
+                    gr['r'] = _p[1]
+                    gr = gr[gr['g'].isin(['Male', 'Female']) & gr['r'].isin(['White', 'Black', 'Hispanic', 'Asian'])]
+                if not gr.empty:
+                    piv = gr.pivot_table(index='r', columns='g', values='delta', aggfunc='mean')
+                    sns.heatmap(piv, annot=True, fmt='.3f', cmap='RdYlGn', center=0,
+                                ax=ax, vmin=-0.15, vmax=0.15)
+                    ax.set_title('C. Gender x Race Drift')
+                else:
+                    ax.text(0.5, 0.5, 'No Gender-Race data', ha='center', va='center')
+                    ax.set_title('C. Gender x Race Drift')
+            else:
+                ax.text(0.5, 0.5, 'No intersectional data', ha='center', va='center')
+                ax.set_title('C. Gender x Race Drift')
+        else:
+            ax.text(0.5, 0.5, 'No delta data', ha='center', va='center')
+            ax.set_title('C. Gender x Race Drift')
+
+        # Panel D: Age-Race cross-group
+        ax = axes[1, 1]
+        if ds_deltas is not None:
+            int_deltas = ds_deltas[(ds_deltas['score'] == primary_score) &
+                                   (ds_deltas['subgroup_type'] == 'Intersectional')].copy()
+            int_deltas = _filter_small_subgroups(int_deltas, 'n_first')
+            ar = int_deltas[int_deltas['subgroup'].str.count('_') == 1].copy()
+            if not ar.empty:
+                _p = ar['subgroup'].str.split('_', expand=True)
+                if _p.shape[1] >= 2:
+                    ar['a'] = _p[0]
+                    ar['r'] = _p[1]
+                    ar = ar[ar['a'].isin(['18-44', '45-64', '65-79', '80+']) &
+                            ar['r'].isin(['White', 'Black', 'Hispanic', 'Asian'])]
+                if not ar.empty:
+                    piv = ar.pivot_table(index='r', columns='a', values='delta', aggfunc='mean')
+                    col_order = [c for c in ['18-44', '45-64', '65-79', '80+'] if c in piv.columns]
+                    piv = piv[col_order]
+                    sns.heatmap(piv, annot=True, fmt='.3f', cmap='RdYlGn', center=0,
+                                ax=ax, vmin=-0.15, vmax=0.15)
+                    ax.set_title('D. Age x Race Drift')
+                else:
+                    ax.text(0.5, 0.5, 'No Age-Race data', ha='center', va='center')
+                    ax.set_title('D. Age x Race Drift')
+            else:
+                ax.text(0.5, 0.5, 'No intersectional data', ha='center', va='center')
+                ax.set_title('D. Age x Race Drift')
+        else:
+            ax.text(0.5, 0.5, 'No delta data', ha='center', va='center')
+            ax.set_title('D. Age x Race Drift')
+
+        plt.suptitle(f'{dataset_name}: Cross-Group Drift Analysis (Supplementary)', fontsize=15, y=1.02)
+        plt.tight_layout()
+        out = SUPPLEMENTARY_FIGURES_DIR / f'figS_per_dataset_{dataset_key}.png'
+        fig.savefig(out, dpi=300, bbox_inches='tight')
+        plt.close()
+        print(f"Saved: supplementary/figS_per_dataset_{dataset_key}.png")
+
+
+# =====================================================================
+# VOLATILITY HEATMAP (X14)
+# =====================================================================
+
+def figS_volatility():
+    """Supplementary: Volatility / fluctuation heatmap from volatility_indicators.csv (X14).
+
+    Shows CV across subgroups and scores, plus max-drawdown comparison.
+    """
+    all_vol = []
+    for ds in ['mimic_combined', 'eicu_combined', 'saltz', 'zhejiang']:
+        vfile = OUTPUT_DIR / ds / 'volatility_indicators.csv'
+        if vfile.exists():
+            vdf = pd.read_csv(vfile)
+            if 'dataset' not in vdf.columns:
+                vdf['dataset'] = ds
+            all_vol.append(vdf)
+
+    if not all_vol:
+        print("No volatility_indicators.csv found -- skipping figS_volatility")
+        return
+
+    vol = pd.concat(all_vol, ignore_index=True)
+
+    fig, axes = plt.subplots(1, 2, figsize=(16, 8))
+
+    # Panel A: CV heatmap
+    ax = axes[0]
+    if 'cv' in vol.columns and 'subgroup' in vol.columns and 'score' in vol.columns:
+        piv = vol.pivot_table(index='subgroup', columns='score', values='cv', aggfunc='mean')
+        sns.heatmap(piv, annot=True, fmt='.2f', cmap='YlOrRd', ax=ax,
+                    cbar_kws={'label': 'Coefficient of Variation'})
+        ax.set_title('A. AUC Coefficient of Variation by Subgroup & Score')
+    else:
+        ax.text(0.5, 0.5, 'CV column not found', ha='center', va='center')
+        ax.set_title('A. Coefficient of Variation')
+
+    # Panel B: Max drawdown comparison
+    ax = axes[1]
+    if 'max_drawdown' in vol.columns:
+        piv = vol.pivot_table(index='subgroup', columns='score', values='max_drawdown', aggfunc='mean')
+        sns.heatmap(piv, annot=True, fmt='.3f', cmap='YlOrRd', ax=ax,
+                    cbar_kws={'label': 'Max Drawdown (AUC)'})
+        ax.set_title('B. Max AUC Drawdown by Subgroup & Score')
+    else:
+        ax.text(0.5, 0.5, 'max_drawdown column not found', ha='center', va='center')
+        ax.set_title('B. Max Drawdown')
+
+    plt.suptitle('Volatility / Fluctuation Indicators (X14)', fontsize=14, y=1.01)
+    plt.tight_layout()
+    fig.savefig(SUPPLEMENTARY_FIGURES_DIR / 'figS_volatility.png', dpi=300, bbox_inches='tight')
+    plt.close()
+    print("Saved: supplementary/figS_volatility.png")
+
+
+# =====================================================================
+# EXISTING SUPPLEMENTARY FIGURES (kept for backward compatibility)
+# =====================================================================
 
 def figS3_overall_drift_by_dataset(results, deltas):
     """Supplementary Figure S3: Overall drift comparison across datasets and scores.
@@ -335,9 +1117,9 @@ def create_intersectional_figure(results, deltas, dataset_key, fig_num):
                  fontsize=14, y=1.02)
     plt.tight_layout()
 
-    # Save
-    output_name = f'fig{fig_num}b_{dataset_key}_intersectional.png'
-    fig.savefig(FIGURES_DIR / output_name, dpi=300, bbox_inches='tight')
+    # Save to SUPPLEMENTARY (per-dataset figures are no longer main, X2)
+    output_name = f'figS_{dataset_key}_intersectional.png'
+    fig.savefig(SUPPLEMENTARY_FIGURES_DIR / output_name, dpi=300, bbox_inches='tight')
     plt.close()
     print(f"Saved: {output_name}")
 
@@ -605,11 +1387,11 @@ def create_per_dataset_figure(results, deltas, dataset_key, fig_num):
     plt.suptitle(f'{dataset_name}: Non-Uniform Subgroup Drift Analysis', fontsize=16, y=1.02)
     plt.tight_layout()
 
-    # Save
-    output_name = f'fig{fig_num}_{dataset_key}.png'
-    fig.savefig(FIGURES_DIR / output_name, dpi=300, bbox_inches='tight')
+    # Save to SUPPLEMENTARY (per-dataset figures are no longer main, X2)
+    output_name = f'figS_legacy_per_dataset_{dataset_key}.png'
+    fig.savefig(SUPPLEMENTARY_FIGURES_DIR / output_name, dpi=300, bbox_inches='tight')
     plt.close()
-    print(f"Saved: {output_name}")
+    print(f"Saved: supplementary/{output_name}")
 
     # Generate separate intersectional figure for this dataset
     create_intersectional_figure(results, deltas, dataset_key, fig_num)
@@ -1083,7 +1865,7 @@ def fig5_money_figure(results, deltas):
         ax3.set_ylabel('Subgroup')
 
     plt.suptitle('Multi-Dataset Analysis of ICU Score Drift by Subgroup', fontsize=14, y=0.98)
-    fig.savefig(FIGURES_DIR / 'fig5_money_figure.png', dpi=300, bbox_inches='tight')
+    fig.savefig(SUPPLEMENTARY_FIGURES_DIR / 'figS_legacy_money_figure.png', dpi=300, bbox_inches='tight')
     plt.close()
     print("Saved: fig5_money_figure.png")
 
@@ -1166,7 +1948,6 @@ def figS6_significance_forest_plot(deltas):
         ax.text(x_pos, i, p_str, va='center', ha=ha, fontsize=7, style='italic')
 
     # Add legend
-    from matplotlib.patches import Patch
     legend_elements = [
         Patch(facecolor='#2ca02c', alpha=0.7, label='Improvement'),
         Patch(facecolor='#d62728', alpha=0.7, label='Decline')
@@ -1601,7 +2382,6 @@ def figS12_between_group_forest_plot():
         ax.text(x_pos, i, p_str, va='center', ha=ha, fontsize=7, style='italic')
 
     # Legend
-    from matplotlib.patches import Patch
     legend_elements = [
         Patch(facecolor='#2ca02c', alpha=0.7, label='Group A drifts more positively'),
         Patch(facecolor='#d62728', alpha=0.7, label='Group A drifts more negatively'),
@@ -1731,7 +2511,7 @@ def create_calibration_figure(dataset_key, dataset_name):
 
     plt.tight_layout()
 
-    output_path = FIGURES_DIR / f'fig7_{dataset_key}_calibration.png'
+    output_path = SUPPLEMENTARY_FIGURES_DIR / f'figS_{dataset_key}_calibration.png'
     plt.savefig(output_path, dpi=150, bbox_inches='tight', facecolor='white')
     plt.close()
     print(f"  Saved: {output_path.name}")
@@ -1912,7 +2692,7 @@ def create_fairness_figure(dataset_key, dataset_name):
 
     plt.tight_layout()
 
-    output_path = FIGURES_DIR / f'fig8_{dataset_key}_fairness.png'
+    output_path = SUPPLEMENTARY_FIGURES_DIR / f'figS_{dataset_key}_fairness.png'
     plt.savefig(output_path, dpi=150, bbox_inches='tight', facecolor='white')
     plt.close()
     print(f"  Saved: {output_path.name}")
@@ -2067,7 +2847,7 @@ def create_va_can_style_drift_figure(dataset_key, dataset_name):
 
     plt.tight_layout()
 
-    output_path = FIGURES_DIR / f'fig6b_{dataset_key}_va_can_drift.png'
+    output_path = SUPPLEMENTARY_FIGURES_DIR / f'figS_{dataset_key}_va_can_drift.png'
     plt.savefig(output_path, dpi=150, bbox_inches='tight', facecolor='white')
     plt.close()
     print(f"  Saved: {output_path.name}")
@@ -2124,36 +2904,46 @@ def create_xiaoli_3panel_summary(results, deltas):
     # Panel C: Fairness heatmap (demographic parity by group type and dataset)
     ax3 = fig.add_subplot(3, 1, 3)
 
-    # Build heatmap data
+    # Build heatmap data — only include datasets that have ALL required group
+    # types (Age, Gender, Race) so the panel is not misleading (Issue 2).
+    required_groups = {'Age', 'Gender', 'Race'}
     heatmap_data = []
     for dataset in datasets:
         fairness_file = OUTPUT_DIR / dataset / 'fairness_metrics.csv'
-        if fairness_file.exists():
-            fair_df = pd.read_csv(fairness_file)
-            # Get last period values
-            for group_type in ['Age', 'Gender', 'Race']:
-                group_data = fair_df[fair_df['group_type'] == group_type]
-                if len(group_data) > 0:
-                    last_val = group_data.sort_values('time_period').iloc[-1]['demographic_parity_diff']
-                    heatmap_data.append({
-                        'Dataset': dataset.replace('_combined', '').title(),
-                        'Group': group_type,
-                        'Demographic Parity Diff': last_val
-                    })
+        if not fairness_file.exists():
+            continue
+        fair_df = pd.read_csv(fairness_file)
+        available_groups = set(fair_df['group_type'].unique())
+        if not required_groups.issubset(available_groups):
+            missing = required_groups - available_groups
+            print(f"  Skipping {dataset} in fairness panel C: missing {missing}")
+            continue
+        for group_type in ['Age', 'Gender', 'Race']:
+            group_data = fair_df[fair_df['group_type'] == group_type]
+            if len(group_data) > 0:
+                last_val = group_data.sort_values('time_period').iloc[-1]['demographic_parity_diff']
+                heatmap_data.append({
+                    'Dataset': dataset.replace('_combined', '').title(),
+                    'Group': group_type,
+                    'Demographic Parity Diff': last_val
+                })
 
     if heatmap_data:
         heatmap_df = pd.DataFrame(heatmap_data)
         pivot = heatmap_df.pivot(index='Dataset', columns='Group', values='Demographic Parity Diff')
         sns.heatmap(pivot, annot=True, fmt='.3f', cmap='RdYlGn_r', ax=ax3,
                    center=0, vmin=0, vmax=0.1, cbar_kws={'label': 'Disparity (0=Fair)'})
-        ax3.set_title('Panel C: Fairness - Demographic Parity Difference (Last Period)', fontweight='bold', fontsize=13)
+        ax3.set_title('Panel C: Fairness - Demographic Parity Difference (Last Period)\n'
+                       '(Only datasets with Age, Gender, AND Race data)',
+                       fontweight='bold', fontsize=12)
     else:
-        ax3.text(0.5, 0.5, 'No fairness data available', ha='center', va='center', fontsize=12)
+        ax3.text(0.5, 0.5, 'No fairness data available\n(no dataset has Age + Gender + Race)',
+                 ha='center', va='center', fontsize=12)
         ax3.set_title('Panel C: Fairness Metrics', fontweight='bold', fontsize=13)
 
     plt.tight_layout()
 
-    output_path = FIGURES_DIR / 'fig9_xiaoli_3panel_summary.png'
+    output_path = SUPPLEMENTARY_FIGURES_DIR / 'figS_xiaoli_3panel_summary.png'
     plt.savefig(output_path, dpi=150, bbox_inches='tight', facecolor='white')
     plt.close()
     print(f"  Saved: {output_path.name}")
@@ -2163,14 +2953,19 @@ def create_xiaoli_3panel_summary(results, deltas):
 def main():
     """Generate all figures from per-dataset results.
 
-    Per Leo's feedback (Dec 21, 2025):
-    - MAIN figures: One comprehensive figure per dataset (NO cross-dataset comparisons)
-    - SUPPLEMENTARY figures: Cross-dataset comparisons moved here
+    Restructured output (X2/X4/X5/X6/X8/X14):
+    - 6 MAIN figures (cross-group / intersectional focus)
+    - Single-subgroup panels moved to supplementary
+    - Old per-dataset main figures moved to supplementary
+    - Volatility heatmap added
+    - Colorblind-friendly palette; sample-size annotations; small-group filtering
     """
-    print("="*60)
-    print("GENERATING DRIFT ANALYSIS FIGURES")
-    print("Per Leo's feedback: Each dataset analyzed SEPARATELY")
-    print("="*60)
+    print("=" * 60)
+    print("GENERATING DRIFT ANALYSIS FIGURES (restructured)")
+    print("  6 main figures (X2) | cross-group focus (X4/X6)")
+    print("  forest plot promoted (X5) | sample-size filter (X8)")
+    print("  volatility heatmap (X14)")
+    print("=" * 60)
 
     # Load data
     results, deltas = load_data()
@@ -2178,33 +2973,57 @@ def main():
         return
 
     # ============================================================
-    # MAIN FIGURES: Per-dataset analysis (NO cross-dataset comparisons)
+    # MAIN FIGURES (6 total, X2)
     # ============================================================
-    print("\n" + "-"*50)
-    print("MAIN FIGURES: Per-Dataset Subgroup Drift Analysis")
-    print("-"*50)
+    print("\n" + "-" * 50)
+    print("MAIN FIGURES (1-6)")
+    print("-" * 50)
 
-    # Fig 1-4: One comprehensive figure per dataset
-    dataset_configs = [
-        ('mimic_combined', 1),
-        ('eicu_combined', 2),
-        ('saltz', 3),
-        ('zhejiang', 4),
-    ]
+    # Fig 1: Study flow placeholder
+    fig1_study_flow()
 
-    for dataset_key, fig_num in dataset_configs:
-        create_per_dataset_figure(results, deltas, dataset_key, fig_num)
+    # Fig 2: SOFA cross-dataset, cross-group
+    print("\nGenerating fig2 (SOFA cross-dataset)...")
+    fig2_cross_dataset_sofa(results, deltas)
 
-    # Fig 5: Money figure (summary of key findings - kept for visual impact)
-    print("\nGenerating summary money figure...")
-    fig5_money_figure(results, deltas)
+    # Fig 3: Fairness + forest plot (X5)
+    print("Generating fig3 (fairness + forest plot)...")
+    fig3_cross_dataset_fairness(results, deltas)
+
+    # Fig 4: Nursing - mouthcare
+    print("Generating fig4 (nursing mouthcare)...")
+    fig4_nursing_mouthcare()
+
+    # Fig 5: Nursing - mechanical ventilation
+    print("Generating fig5 (nursing mechvent)...")
+    fig5_nursing_mechvent()
+
+    # Fig 6: Summary / money figure
+    print("Generating fig6 (summary)...")
+    fig6_summary(results, deltas)
 
     # ============================================================
-    # XIAOLI'S RECOMMENDED FIGURES: Classification, Calibration, Fairness
+    # SUPPLEMENTARY: single-subgroup per-dataset (X4/X6)
     # ============================================================
-    print("\n" + "-"*50)
+    print("\n" + "-" * 50)
+    print("SUPPLEMENTARY: Single-Subgroup Per-Dataset (X4/X6)")
+    print("-" * 50)
+
+    generate_single_subgroup_supplementary(results)
+    figS_per_dataset_intersectional(results, deltas)
+
+    # ============================================================
+    # SUPPLEMENTARY: Volatility heatmap (X14)
+    # ============================================================
+    print("\nGenerating volatility heatmap (X14)...")
+    figS_volatility()
+
+    # ============================================================
+    # XIAOLI'S RECOMMENDED FIGURES (kept as additional supplementary)
+    # ============================================================
+    print("\n" + "-" * 50)
     print("XIAOLI FIGURES: Classification, Calibration, Fairness")
-    print("-"*50)
+    print("-" * 50)
 
     dataset_names = {
         'mimic_combined': 'MIMIC Combined (2001-2022)',
@@ -2217,51 +3036,29 @@ def main():
         print(f"\nGenerating Xiaoli figures for {dataset_key}...")
         create_calibration_figure(dataset_key, dataset_name)
         create_fairness_figure(dataset_key, dataset_name)
-        # VA CAN paper-style drift figure (Figure 1 format)
         create_va_can_style_drift_figure(dataset_key, dataset_name)
 
-    # Fig 9: Xiaoli's 3-panel summary (AUC + Calibration + Fairness)
-    print("\nGenerating Xiaoli 3-panel summary figure...")
-    create_xiaoli_3panel_summary(results, deltas)
+    # NOTE: create_xiaoli_3panel_summary REMOVED (Issue 2 / Xiaoli feedback).
+    # The combined 3-panel figure mixed datasets with incomplete data (e.g.,
+    # Saltz and Zhejiang have no race data), producing misleading fairness
+    # heatmaps.  Per-dataset calibration/fairness figures above are sufficient.
 
     # ============================================================
-    # SUPPLEMENTARY FIGURES: Cross-dataset comparisons
+    # SUPPLEMENTARY FIGURES: Cross-dataset comparisons (legacy S3-S12)
     # ============================================================
-    print("\n" + "-"*50)
-    print("SUPPLEMENTARY FIGURES: Cross-Dataset Comparisons")
-    print("-"*50)
+    print("\n" + "-" * 50)
+    print("SUPPLEMENTARY FIGURES: Cross-Dataset Comparisons (S3-S12)")
+    print("-" * 50)
 
-    # Move all cross-dataset comparison figures to supplementary
-    # Rename functions to figS* pattern and save to supplementary folder
-
-    # S3: Overall drift comparison (cross-dataset)
     figS3_overall_drift_by_dataset(results, deltas)
-
-    # S4: Age-stratified drift comparison (cross-dataset)
     figS4_age_stratified_comparison(results, deltas)
-
-    # S5: Race disparities comparison (cross-dataset)
     figS5_race_comparison(results, deltas)
-
-    # S6: Forest plot of significant findings (cross-dataset)
     figS6_significance_forest_plot(deltas)
-
-    # S7: Gender drift patterns (cross-dataset)
     figS7_gender_comparison(results, deltas)
-
-    # S8: Drift delta summary (cross-dataset)
     figS8_drift_delta_summary(deltas)
-
-    # S9: Comprehensive heatmap (cross-dataset)
     figS9_comprehensive_heatmap(deltas)
-
-    # S10: Score comparison by age (cross-dataset)
     figS10_score_comparison_by_age(deltas)
-
-    # S11: Temporal trajectory (cross-dataset)
     figS11_temporal_trajectory(results)
-
-    # S12: Between-group drift comparison forest plot
     figS12_between_group_forest_plot()
 
     # Create summary tables
@@ -2271,11 +3068,11 @@ def main():
     # Verify care phenotype supplementary figures
     copy_supplementary_figures()
 
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("ALL FIGURES GENERATED SUCCESSFULLY")
-    print("="*60)
-    print(f"\nMain figures (1-5): {FIGURES_DIR}")
-    print(f"Supplementary figures (S1-S12): {SUPPLEMENTARY_FIGURES_DIR}")
+    print("=" * 60)
+    print(f"\nMain figures (1-6): {FIGURES_DIR}")
+    print(f"Supplementary figures: {SUPPLEMENTARY_FIGURES_DIR}")
     print(f"Tables: {OUTPUT_DIR}")
 
 

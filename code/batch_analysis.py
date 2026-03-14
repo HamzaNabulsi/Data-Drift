@@ -76,6 +76,11 @@ Examples:
         default=None,
         help='Comma-separated SOFA thresholds for sensitivity analysis (default: from config.py, e.g. "2,6,8,10")'
     )
+    parser.add_argument(
+        '--eicu-regional',
+        action='store_true',
+        help='Run eICU regional breakdown analysis (region + teaching status)'
+    )
     return parser.parse_args()
 
 # Parse arguments
@@ -1881,6 +1886,12 @@ def run_batch_analysis(datasets_to_run=None):
                 OUTPUT_DIR,
                 between_group_df=combined_bg
             )
+
+            # eICU regional analysis (X11/L5): break down by hospital region and teaching status
+            if args.eicu_regional and dataset_key == 'eicu_combined':
+                from supplementary_analysis import analyze_eicu_regional
+                print(f"\n  Running eICU regional breakdown analysis...")
+                analyze_eicu_regional(df, config)
 
             # X3/X12: Also save per-threshold drift results for SOFA
             if any(s.startswith('sofa_t') for s in combined_dataset_deltas['score'].unique()):
