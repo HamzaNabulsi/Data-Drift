@@ -35,6 +35,10 @@ Across 809,017 ICU admissions from 4 datasets spanning the US, Europe, and Asia 
 
 4. **The same subgroup can improve in one system and decline in another.** No single recalibration factor generalizes across institutions or geographies.
 
+### Summary Figure
+
+![Summary Figure](figures/fig5_money_figure.png)
+
 ---
 
 ## Datasets
@@ -100,11 +104,67 @@ Results are saved to `volatility_indicators.csv`.
 | **4--5** | Nursing care phenotypes (mouthcare and mechanical ventilation turning frequency) as proxies for unmeasured intersectional factors, with demographic cross-tabulation by care quartile |
 | **6** | Multi-panel summary: age-group divergence, race disparities, comprehensive heatmap |
 
+#### MIMIC Combined (2001--2022)
+
+![MIMIC Combined — Subgroup Drift](figures/fig1_mimic_combined.png)
+![MIMIC Combined — Intersectional](figures/fig1b_mimic_combined_intersectional.png)
+
+#### eICU Combined (2014--2021)
+
+![eICU Combined — Subgroup Drift](figures/fig2_eicu_combined.png)
+![eICU Combined — Intersectional](figures/fig2b_eicu_combined_intersectional.png)
+
+#### Saltz ICU (2013--2021, Europe)
+
+![Saltz — Subgroup Drift](figures/fig3_saltz.png)
+
+#### Zhejiang ICU (2011--2022, China)
+
+![Zhejiang — Subgroup Drift](figures/fig4_zhejiang.png)
+
+#### Calibration & Fairness
+
+| MIMIC | eICU |
+|-------|------|
+| ![MIMIC Calibration](figures/fig7_mimic_combined_calibration.png) | ![eICU Calibration](figures/fig7_eicu_combined_calibration.png) |
+| ![MIMIC Fairness](figures/fig8_mimic_combined_fairness.png) | ![eICU Fairness](figures/fig8_eicu_combined_fairness.png) |
+
+#### VA CAN Style Drift
+
+| MIMIC | eICU | Saltz | Zhejiang |
+|-------|------|-------|----------|
+| ![MIMIC VA CAN](figures/fig6b_mimic_combined_va_can_drift.png) | ![eICU VA CAN](figures/fig6b_eicu_combined_va_can_drift.png) | ![Saltz VA CAN](figures/fig6b_saltz_va_can_drift.png) | ![Zhejiang VA CAN](figures/fig6b_zhejiang_va_can_drift.png) |
+
 ### Supplementary Figures
 
-- Per-dataset single-subgroup analyses (age, gender, race individually)
-- Per-dataset classification, calibration, and fairness panels
-- Per-threshold SOFA sensitivity results
+<details>
+<summary>Click to expand supplementary figures</summary>
+
+#### Cross-Dataset Comparisons
+
+![Overall Drift Comparison](figures/supplementary/figS3_overall_drift_comparison.png)
+![Age Comparison](figures/supplementary/figS4_age_comparison.png)
+![Race Comparison](figures/supplementary/figS5_race_comparison.png)
+![Gender Comparison](figures/supplementary/figS7_gender_comparison.png)
+
+#### Statistical Results
+
+![Significance Forest Plot](figures/supplementary/figS6_significance_forest_plot.png)
+![Between-Group Comparison](figures/supplementary/figS12_between_group_comparison.png)
+![Drift Delta Summary](figures/supplementary/figS8_drift_delta_summary.png)
+
+#### Detailed Analyses
+
+![Score Comparison by Age](figures/supplementary/figS10_score_comparison_by_age.png)
+![Temporal Trajectory](figures/supplementary/figS11_temporal_trajectory.png)
+![Comprehensive Heatmap](figures/supplementary/figS9_comprehensive_heatmap.png)
+
+#### Care Phenotypes (MIMIC only)
+
+![Mouthcare](figures/supplementary/figS1_mimic_mouthcare.png)
+![Mechanical Ventilation](figures/supplementary/figS2_mimic_mechvent.png)
+
+</details>
 
 ---
 
