@@ -27,6 +27,7 @@
 \usepackage{algpseudocode}%
 \usepackage{listings}%
 \usepackage{hyperref}%
+\usepackage{svg}%
 %%%%
 
 \theoremstyle{thmstyleone}%
@@ -76,7 +77,7 @@ Across 809,017 ICU admissions from 4 datasets spanning the US, Europe, and Asia 
 
 \begin{figure}[htbp]
 \centering
-\includegraphics[width=0.95\textwidth]{figures/fig1_study_flow}
+\includesvg[width=0.95\textwidth]{figures/fig1_study_flow}
 \caption{Study flow diagram and cohort characteristics across 809,017 ICU admissions from four datasets spanning three continents (2001--2022). Inclusion criteria, sample sizes, mortality rates, and available severity scores are shown for each cohort.}\label{fig:study_flow}
 \end{figure}
 
@@ -264,15 +265,213 @@ The authors acknowledge the data providers for the MIMIC, eICU, Saltz, and Zheji
 
 \section{Supplementary figures}\label{secA1}
 
-Supplementary figures are provided as separate files:
+%% --- Per-dataset intersectional drift ---
 
-\begin{itemize}
-\item \textbf{Per-dataset intersectional drift:} Full subgroup breakdown for MIMIC, eICU, Saltz, and Zhejiang independently.
-\item \textbf{Single-subgroup analyses:} Age-only, gender-only, and race-only drift per dataset.
-\item \textbf{Calibration and fairness:} Per-dataset SMR/Brier score drift and demographic parity/equalized odds.
-\item \textbf{VA-CAN drift:} Per-dataset VA CAN-style drift visualization.
-\item \textbf{Care phenotype demographics:} Care quartile by demographics heatmaps and scatter plots (MIMIC only).
-\end{itemize}
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.95\textwidth]{figures/supplementary/figS_per_dataset_mimic_combined.png}
+\caption{Per-dataset intersectional drift: MIMIC Combined.}\label{fig:s_per_dataset_mimic}
+\end{figure}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.95\textwidth]{figures/supplementary/figS_per_dataset_eicu_combined.png}
+\caption{Per-dataset intersectional drift: eICU Combined.}\label{fig:s_per_dataset_eicu}
+\end{figure}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.95\textwidth]{figures/supplementary/figS_per_dataset_saltz.png}
+\caption{Per-dataset intersectional drift: Saltz (AmsterdamUMCdb).}\label{fig:s_per_dataset_saltz}
+\end{figure}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.95\textwidth]{figures/supplementary/figS_per_dataset_zhejiang.png}
+\caption{Per-dataset intersectional drift: Zhejiang.}\label{fig:s_per_dataset_zhejiang}
+\end{figure}
+
+%% --- Single-subgroup: Age ---
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.95\textwidth]{figures/supplementary/figS_age_mimic_combined.png}
+\caption{Age-only SOFA drift: MIMIC Combined.}\label{fig:s_age_mimic}
+\end{figure}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.95\textwidth]{figures/supplementary/figS_age_eicu_combined.png}
+\caption{Age-only SOFA drift: eICU Combined.}\label{fig:s_age_eicu}
+\end{figure}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.95\textwidth]{figures/supplementary/figS_age_saltz.png}
+\caption{Age-only SOFA drift: Saltz.}\label{fig:s_age_saltz}
+\end{figure}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.95\textwidth]{figures/supplementary/figS_age_zhejiang.png}
+\caption{Age-only SOFA drift: Zhejiang.}\label{fig:s_age_zhejiang}
+\end{figure}
+
+%% --- Single-subgroup: Gender ---
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.95\textwidth]{figures/supplementary/figS_gender_mimic_combined.png}
+\caption{Gender-only SOFA drift: MIMIC Combined.}\label{fig:s_gender_mimic}
+\end{figure}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.95\textwidth]{figures/supplementary/figS_gender_eicu_combined.png}
+\caption{Gender-only SOFA drift: eICU Combined.}\label{fig:s_gender_eicu}
+\end{figure}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.95\textwidth]{figures/supplementary/figS_gender_saltz.png}
+\caption{Gender-only SOFA drift: Saltz.}\label{fig:s_gender_saltz}
+\end{figure}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.95\textwidth]{figures/supplementary/figS_gender_zhejiang.png}
+\caption{Gender-only SOFA drift: Zhejiang.}\label{fig:s_gender_zhejiang}
+\end{figure}
+
+%% --- Single-subgroup: Race (US only) ---
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.95\textwidth]{figures/supplementary/figS_race_mimic_combined.png}
+\caption{Race-only SOFA drift: MIMIC Combined.}\label{fig:s_race_mimic}
+\end{figure}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.95\textwidth]{figures/supplementary/figS_race_eicu_combined.png}
+\caption{Race-only SOFA drift: eICU Combined.}\label{fig:s_race_eicu}
+\end{figure}
+
+%% --- Calibration ---
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.95\textwidth]{figures/supplementary/figS_mimic_combined_calibration.png}
+\caption{Calibration drift (SMR and Brier score): MIMIC Combined.}\label{fig:s_cal_mimic}
+\end{figure}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.95\textwidth]{figures/supplementary/figS_eicu_combined_calibration.png}
+\caption{Calibration drift (SMR and Brier score): eICU Combined.}\label{fig:s_cal_eicu}
+\end{figure}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.95\textwidth]{figures/supplementary/figS_saltz_calibration.png}
+\caption{Calibration drift (SMR and Brier score): Saltz.}\label{fig:s_cal_saltz}
+\end{figure}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.95\textwidth]{figures/supplementary/figS_zhejiang_calibration.png}
+\caption{Calibration drift (SMR and Brier score): Zhejiang.}\label{fig:s_cal_zhejiang}
+\end{figure}
+
+%% --- Fairness ---
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.95\textwidth]{figures/supplementary/figS_mimic_combined_fairness.png}
+\caption{Fairness metrics (demographic parity and equalized odds): MIMIC Combined.}\label{fig:s_fair_mimic}
+\end{figure}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.95\textwidth]{figures/supplementary/figS_eicu_combined_fairness.png}
+\caption{Fairness metrics (demographic parity and equalized odds): eICU Combined.}\label{fig:s_fair_eicu}
+\end{figure}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.95\textwidth]{figures/supplementary/figS_saltz_fairness.png}
+\caption{Fairness metrics (demographic parity and equalized odds): Saltz.}\label{fig:s_fair_saltz}
+\end{figure}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.95\textwidth]{figures/supplementary/figS_zhejiang_fairness.png}
+\caption{Fairness metrics (demographic parity and equalized odds): Zhejiang.}\label{fig:s_fair_zhejiang}
+\end{figure}
+
+%% --- VA-CAN drift ---
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.95\textwidth]{figures/supplementary/figS_mimic_combined_va_can_drift.png}
+\caption{VA-CAN drift visualization: MIMIC Combined.}\label{fig:s_vacan_mimic}
+\end{figure}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.95\textwidth]{figures/supplementary/figS_eicu_combined_va_can_drift.png}
+\caption{VA-CAN drift visualization: eICU Combined.}\label{fig:s_vacan_eicu}
+\end{figure}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.95\textwidth]{figures/supplementary/figS_saltz_va_can_drift.png}
+\caption{VA-CAN drift visualization: Saltz.}\label{fig:s_vacan_saltz}
+\end{figure}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.95\textwidth]{figures/supplementary/figS_zhejiang_va_can_drift.png}
+\caption{VA-CAN drift visualization: Zhejiang.}\label{fig:s_vacan_zhejiang}
+\end{figure}
+
+%% --- Care phenotype demographics (MIMIC only) ---
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.95\textwidth]{figures/supplementary/figS1_mimic_mouthcare.png}
+\caption{Nursing care phenotype: mouthcare detailed analysis (MIMIC).}\label{fig:s_mouthcare_detail}
+\end{figure}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.95\textwidth]{figures/supplementary/figS2_mimic_mechvent.png}
+\caption{Nursing care phenotype: mechanical ventilation detailed analysis (MIMIC).}\label{fig:s_mechvent_detail}
+\end{figure}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.95\textwidth]{figures/supplementary/mouthcare_care_demographics_heatmap.png}
+\caption{Care quartile by demographics heatmap: mouthcare (MIMIC).}\label{fig:s_mouthcare_heatmap}
+\end{figure}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.95\textwidth]{figures/supplementary/mechvent_care_demographics_heatmap.png}
+\caption{Care quartile by demographics heatmap: mechanical ventilation (MIMIC).}\label{fig:s_mechvent_heatmap}
+\end{figure}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.95\textwidth]{figures/supplementary/mouthcare_care_phenotype_demographics.png}
+\caption{Care phenotype drift within racial subgroups: mouthcare (MIMIC).}\label{fig:s_mouthcare_demo}
+\end{figure}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.95\textwidth]{figures/supplementary/mechvent_care_phenotype_demographics.png}
+\caption{Care phenotype drift within racial subgroups: mechanical ventilation (MIMIC).}\label{fig:s_mechvent_demo}
+\end{figure}
 
 \end{appendices}
 
