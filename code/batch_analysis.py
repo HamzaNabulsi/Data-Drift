@@ -22,7 +22,8 @@ from pathlib import Path
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent))
 
-from config import DATASETS, OUTPUT_PATH as OUTPUT_DIR
+from config import (DATASETS, OUTPUT_PATH as OUTPUT_DIR, SOFA_THRESHOLDS,
+                    MIN_CLINICALLY_SIGNIFICANT_DELTA)
 from sklearn.metrics import roc_auc_score, brier_score_loss, confusion_matrix
 from scipy import stats
 from scipy.stats import page_trend_test, false_discovery_control
@@ -30,6 +31,7 @@ import warnings
 warnings.filterwarnings('ignore')
 
 # SOFA threshold for binary classification (JAMA 2001: SOFA>=10 ~ 40% mortality)
+# Now configurable via --sofa-thresholds CLI arg; default kept at 10 for backward compat.
 SOFA_THRESHOLD = 10
 
 # =============================================================================
@@ -68,6 +70,17 @@ Examples:
         action='store_true',
         help='Fast mode: use only 2 bootstrap iterations (for testing)'
     )
+    parser.add_argument(
+        '--sofa-thresholds',
+        type=str,
+        default=None,
+        help='Comma-separated SOFA thresholds for sensitivity analysis (default: from config.py, e.g. "2,6,8,10")'
+    )
+    parser.add_argument(
+        '--eicu-regional',
+        action='store_true',
+        help='Run eICU regional breakdown analysis (region + teaching status)'
+    )
     return parser.parse_args()
 
 # Parse arguments
@@ -75,6 +88,12 @@ args = parse_args()
 N_BOOTSTRAP = 2 if args.fast else args.bootstrap
 CI_LEVEL = 0.95
 RANDOM_SEED = 42
+
+# SOFA threshold sensitivity analysis (X3/X12): parse CLI or use config default
+if args.sofa_thresholds is not None:
+    ACTIVE_SOFA_THRESHOLDS = [int(t.strip()) for t in args.sofa_thresholds.split(',')]
+else:
+    ACTIVE_SOFA_THRESHOLDS = SOFA_THRESHOLDS  # from config.py, default [2, 6, 8, 10]
 
 # Define age bins consistently across all datasets
 AGE_BINS = [18, 45, 65, 80, 150]
@@ -1018,18 +1037,27 @@ def compute_drift_deltas_with_pvalues(df, config, score_col, results_df, n_permu
     return pd.DataFrame(deltas)
 
 
-def compute_drift_trend_test(results_df, bootstrap_store, alpha=0.05):
+def compute_drift_trend_test(results_df, bootstrap_store, alpha=0.05, apply_fdr=True):
     """
     Compute drift trend significance using Page's L trend test on bootstrap replicates.
 
     For each subgroup, constructs a matrix (rows=bootstrap replicates, columns=ordered periods)
     and tests for a monotonic trend across ALL periods (not just first vs last).
-    Applies Benjamini-Hochberg FDR correction across all tests.
+
+    L3 fix (bootstrap independence): Only the FIRST half of bootstrap replicates is used
+    for trend tests. The second half is reserved for between-group comparisons to avoid
+    inflating significance through shared samples (Leo's feedback).
+
+    L4 fix (pooled FDR): When apply_fdr=False, raw p-values are returned without per-score
+    FDR correction. The caller should collect p-values across ALL scores and apply FDR once
+    via pool_fdr_correction().
 
     Args:
         results_df: Results DataFrame from analyze_drift (with auc per period)
         bootstrap_store: dict of {(subgroup_type, subgroup, period): [bootstrap_aucs]}
         alpha: Significance threshold after FDR correction (default 0.05)
+        apply_fdr: If True (default), apply BH FDR correction within this call.
+                   If False, skip FDR and store raw p-values only (for pooled FDR later).
 
     Returns:
         DataFrame with trend test results including FDR-corrected p-values
@@ -1061,14 +1089,20 @@ def compute_drift_trend_test(results_df, bootstrap_store, alpha=0.05):
 
         delta = auc_last - auc_first
 
-        # Gather bootstrap replicates across all periods for this subgroup
+        # Gather bootstrap replicates across all periods for this subgroup.
+        # L3 fix: Use only the FIRST half of replicates for trend tests.
+        # The second half is reserved for between-group comparisons to ensure
+        # statistical independence between the two analyses.
         available_periods = []
         replicate_lists = []
         for p in periods:
             key = (subgroup_type, subgroup, str(p))
             if key in bootstrap_store and len(bootstrap_store[key]) > 0:
+                full_reps = bootstrap_store[key]
+                half = len(full_reps) // 2
+                # Use first half only (indices 0..half-1)
+                replicate_lists.append(full_reps[:half] if half > 0 else full_reps)
                 available_periods.append(p)
-                replicate_lists.append(bootstrap_store[key])
 
         # Page's test needs >= 3 periods and >= 3 replicates
         p_trend = np.nan
@@ -1161,14 +1195,20 @@ def compute_drift_trend_test(results_df, bootstrap_store, alpha=0.05):
 
     deltas_df = pd.DataFrame(deltas)
 
-    # Benjamini-Hochberg FDR correction across all tests
-    valid_mask = deltas_df['p_value_trend'].notna()
-    if valid_mask.sum() > 0:
-        raw_pvals = deltas_df.loc[valid_mask, 'p_value_trend'].values
-        adjusted = false_discovery_control(raw_pvals, method='bh')
-        deltas_df.loc[valid_mask, 'p_value_trend_fdr'] = adjusted
-        deltas_df.loc[valid_mask, 'significant'] = adjusted < alpha
+    if apply_fdr:
+        # Benjamini-Hochberg FDR correction across all tests (per-score, legacy behavior)
+        valid_mask = deltas_df['p_value_trend'].notna()
+        if valid_mask.sum() > 0:
+            raw_pvals = deltas_df.loc[valid_mask, 'p_value_trend'].values
+            adjusted = false_discovery_control(raw_pvals, method='bh')
+            deltas_df.loc[valid_mask, 'p_value_trend_fdr'] = adjusted
+            deltas_df.loc[valid_mask, 'significant'] = adjusted < alpha
+        else:
+            deltas_df['p_value_trend_fdr'] = np.nan
+            deltas_df['significant'] = False
     else:
+        # L4 fix: Skip per-score FDR; raw p-values will be corrected via
+        # pool_fdr_correction() across ALL scores.
         deltas_df['p_value_trend_fdr'] = np.nan
         deltas_df['significant'] = False
 
@@ -1181,7 +1221,8 @@ def compute_drift_trend_test(results_df, bootstrap_store, alpha=0.05):
     return deltas_df
 
 
-def compute_between_group_drift_comparison(deltas_df, bootstrap_store, alpha=0.05):
+def compute_between_group_drift_comparison(deltas_df, bootstrap_store, alpha=0.05,
+                                           apply_fdr=True):
     """
     Test whether drift differs significantly BETWEEN subgroups.
 
@@ -1189,10 +1230,21 @@ def compute_between_group_drift_comparison(deltas_df, bootstrap_store, alpha=0.0
     on bootstrap delta distributions. For Intersectional: compare each
     group vs Overall only (too many pairwise otherwise).
 
+    L3 fix (bootstrap independence): Only the SECOND half of bootstrap replicates
+    is used for between-group comparisons. The first half is used by
+    compute_drift_trend_test(). This avoids inflating significance through
+    shared bootstrap samples (Leo's feedback).
+
+    L4 fix (pooled FDR): When apply_fdr=False, raw p-values are returned without
+    per-score FDR correction. The caller should collect p-values across ALL scores
+    and apply FDR once via pool_fdr_correction().
+
     Args:
         deltas_df: Output from compute_drift_trend_test() (one row per subgroup-score)
         bootstrap_store: dict of {(subgroup_type, subgroup, period_str): [auc_replicates]}
         alpha: Significance threshold after FDR correction
+        apply_fdr: If True (default), apply BH FDR correction within this call.
+                   If False, skip FDR and store raw p-values only (for pooled FDR later).
 
     Returns:
         DataFrame with between-group comparison results
@@ -1223,7 +1275,10 @@ def compute_between_group_drift_comparison(deltas_df, bootstrap_store, alpha=0.0
         if len(subgroups) < 2 and stype != 'Intersectional':
             continue
 
-        # Build delta distributions for each subgroup in this type
+        # Build delta distributions for each subgroup in this type.
+        # L3 fix: Use only the SECOND half of bootstrap replicates for between-group
+        # comparisons. The first half is used by compute_drift_trend_test() to ensure
+        # statistical independence between the two analyses.
         delta_distributions = {}
         for sg in subgroups:
             key_first = (stype, sg, str(first_period))
@@ -1232,8 +1287,14 @@ def compute_between_group_drift_comparison(deltas_df, bootstrap_store, alpha=0.0
             if key_first not in bootstrap_store or key_last not in bootstrap_store:
                 continue
 
-            reps_first = np.array(bootstrap_store[key_first])
-            reps_last = np.array(bootstrap_store[key_last])
+            full_reps_first = np.array(bootstrap_store[key_first])
+            full_reps_last = np.array(bootstrap_store[key_last])
+
+            # Use second half only (indices half..end)
+            half_first = len(full_reps_first) // 2
+            half_last = len(full_reps_last) // 2
+            reps_first = full_reps_first[half_first:]
+            reps_last = full_reps_last[half_last:]
 
             min_len = min(len(reps_first), len(reps_last))
             if min_len < 3:
@@ -1249,8 +1310,11 @@ def compute_between_group_drift_comparison(deltas_df, bootstrap_store, alpha=0.0
             overall_key_last = ('Overall', 'All', str(last_period))
 
             if overall_key_first in bootstrap_store and overall_key_last in bootstrap_store:
-                reps_first_ov = np.array(bootstrap_store[overall_key_first])
-                reps_last_ov = np.array(bootstrap_store[overall_key_last])
+                # L3 fix: use second half of overall replicates too
+                full_ov_first = np.array(bootstrap_store[overall_key_first])
+                full_ov_last = np.array(bootstrap_store[overall_key_last])
+                reps_first_ov = full_ov_first[len(full_ov_first) // 2:]
+                reps_last_ov = full_ov_last[len(full_ov_last) // 2:]
                 min_len_ov = min(len(reps_first_ov), len(reps_last_ov))
 
                 if min_len_ov >= 3:
@@ -1311,8 +1375,11 @@ def compute_between_group_drift_comparison(deltas_df, bootstrap_store, alpha=0.0
             overall_key_last = ('Overall', 'All', str(last_period))
 
             if overall_key_first in bootstrap_store and overall_key_last in bootstrap_store:
-                reps_first_ov = np.array(bootstrap_store[overall_key_first])
-                reps_last_ov = np.array(bootstrap_store[overall_key_last])
+                # L3 fix: use second half of overall replicates
+                full_ov_first = np.array(bootstrap_store[overall_key_first])
+                full_ov_last = np.array(bootstrap_store[overall_key_last])
+                reps_first_ov = full_ov_first[len(full_ov_first) // 2:]
+                reps_last_ov = full_ov_last[len(full_ov_last) // 2:]
                 min_len_ov = min(len(reps_first_ov), len(reps_last_ov))
 
                 if min_len_ov >= 3:
@@ -1346,14 +1413,20 @@ def compute_between_group_drift_comparison(deltas_df, bootstrap_store, alpha=0.0
 
     comp_df = pd.DataFrame(comparisons)
 
-    # FDR correction across all comparisons
-    valid_mask = comp_df['p_value'].notna()
-    if valid_mask.sum() > 0:
-        raw_pvals = comp_df.loc[valid_mask, 'p_value'].values
-        adjusted = false_discovery_control(raw_pvals, method='bh')
-        comp_df.loc[valid_mask, 'p_value_fdr'] = adjusted
-        comp_df.loc[valid_mask, 'significant'] = adjusted < alpha
+    if apply_fdr:
+        # FDR correction across all comparisons (per-score, legacy behavior)
+        valid_mask = comp_df['p_value'].notna()
+        if valid_mask.sum() > 0:
+            raw_pvals = comp_df.loc[valid_mask, 'p_value'].values
+            adjusted = false_discovery_control(raw_pvals, method='bh')
+            comp_df.loc[valid_mask, 'p_value_fdr'] = adjusted
+            comp_df.loc[valid_mask, 'significant'] = adjusted < alpha
+        else:
+            comp_df['p_value_fdr'] = np.nan
+            comp_df['significant'] = False
     else:
+        # L4 fix: Skip per-score FDR; raw p-values will be corrected via
+        # pool_fdr_correction() across ALL scores.
         comp_df['p_value_fdr'] = np.nan
         comp_df['significant'] = False
 
@@ -1364,6 +1437,155 @@ def compute_between_group_drift_comparison(deltas_df, bootstrap_store, alpha=0.0
     comp_df['significant'] = comp_df['significant'].infer_objects(copy=False).fillna(False)
 
     return comp_df
+
+
+def pool_fdr_correction(all_trend_dfs, all_comparison_dfs, alpha=0.05):
+    """
+    Apply Benjamini-Hochberg FDR correction across ALL scores simultaneously (L4 fix).
+
+    Instead of correcting p-values per-score (which under-corrects when many scores are
+    tested), this function pools all raw p-values from every score's trend tests and
+    between-group comparisons, applies BH FDR once, then maps corrected values back.
+
+    Args:
+        all_trend_dfs: list of DataFrames from compute_drift_trend_test(apply_fdr=False)
+        all_comparison_dfs: list of DataFrames from compute_between_group_drift_comparison(apply_fdr=False)
+        alpha: Significance threshold (default 0.05)
+
+    Returns:
+        tuple: (corrected_trend_dfs, corrected_comparison_dfs) with updated columns:
+               - 'p_value_pooled_fdr': pooled FDR-corrected p-value
+               - 'significant': True if p_value_pooled_fdr < alpha
+    """
+    # --- Collect all raw p-values ---
+    all_pvals = []
+    # Track source: (source_type, list_index, row_index_within_df)
+    source_map = []
+
+    for i, df in enumerate(all_trend_dfs):
+        if df.empty:
+            continue
+        for row_idx in df.index:
+            p = df.loc[row_idx, 'p_value_trend']
+            if pd.notna(p):
+                all_pvals.append(p)
+                source_map.append(('trend', i, row_idx))
+
+    for i, df in enumerate(all_comparison_dfs):
+        if df.empty:
+            continue
+        for row_idx in df.index:
+            p = df.loc[row_idx, 'p_value']
+            if pd.notna(p):
+                all_pvals.append(p)
+                source_map.append(('comparison', i, row_idx))
+
+    if len(all_pvals) == 0:
+        # Nothing to correct; ensure columns exist
+        for df in all_trend_dfs:
+            if not df.empty:
+                df['p_value_pooled_fdr'] = np.nan
+                df['significant'] = False
+        for df in all_comparison_dfs:
+            if not df.empty:
+                df['p_value_pooled_fdr'] = np.nan
+                df['significant'] = False
+        return all_trend_dfs, all_comparison_dfs
+
+    # --- Apply BH FDR correction across the entire pool ---
+    raw_pvals_arr = np.array(all_pvals)
+    adjusted_pvals = false_discovery_control(raw_pvals_arr, method='bh')
+
+    # --- Initialize columns ---
+    for df in all_trend_dfs:
+        if not df.empty:
+            df['p_value_pooled_fdr'] = np.nan
+            df['significant'] = False
+    for df in all_comparison_dfs:
+        if not df.empty:
+            df['p_value_pooled_fdr'] = np.nan
+            df['significant'] = False
+
+    # --- Map corrected p-values back ---
+    for k, (src_type, list_idx, row_idx) in enumerate(source_map):
+        adj_p = adjusted_pvals[k]
+        if src_type == 'trend':
+            all_trend_dfs[list_idx].loc[row_idx, 'p_value_pooled_fdr'] = adj_p
+            all_trend_dfs[list_idx].loc[row_idx, 'significant'] = adj_p < alpha
+            # Also update the per-score FDR column for backward compatibility
+            all_trend_dfs[list_idx].loc[row_idx, 'p_value_trend_fdr'] = adj_p
+        else:
+            all_comparison_dfs[list_idx].loc[row_idx, 'p_value_pooled_fdr'] = adj_p
+            all_comparison_dfs[list_idx].loc[row_idx, 'significant'] = adj_p < alpha
+            all_comparison_dfs[list_idx].loc[row_idx, 'p_value_fdr'] = adj_p
+
+    return all_trend_dfs, all_comparison_dfs
+
+
+def compute_volatility_indicators(results_df):
+    """
+    Compute fluctuation/volatility indicators for drift assessment (X14).
+
+    For each subgroup, computes:
+    - Coefficient of Variation (CV): std(AUC) / mean(AUC) across time periods
+    - Max drawdown: largest single-period AUC drop
+    - Trend reversal count: number of times AUC drift direction changes sign
+      between consecutive periods
+
+    Args:
+        results_df: DataFrame from analyze_drift with columns
+                    ['subgroup_type', 'subgroup', 'time_period', 'auc']
+
+    Returns:
+        DataFrame with one row per subgroup containing volatility indicators
+    """
+    if results_df.empty:
+        return pd.DataFrame()
+
+    indicators = []
+
+    for (subgroup_type, subgroup), group in results_df.groupby(['subgroup_type', 'subgroup']):
+        # Sort by time period
+        group_sorted = group.sort_values('time_period')
+        aucs = group_sorted['auc'].dropna().values
+
+        if len(aucs) < 2:
+            continue
+
+        mean_auc = np.mean(aucs)
+        std_auc = np.std(aucs, ddof=1) if len(aucs) > 1 else 0.0
+
+        # Coefficient of Variation
+        cv = std_auc / mean_auc if mean_auc != 0 else np.nan
+
+        # Max drawdown: largest single-period AUC drop (consecutive)
+        diffs = np.diff(aucs)
+        max_drawdown = float(np.min(diffs)) if len(diffs) > 0 else 0.0
+
+        # Trend reversal count: number of sign changes in consecutive diffs
+        if len(diffs) > 1:
+            signs = np.sign(diffs)
+            # Remove zeros (no change) for reversal counting
+            nonzero_signs = signs[signs != 0]
+            if len(nonzero_signs) > 1:
+                reversals = int(np.sum(np.diff(nonzero_signs) != 0))
+            else:
+                reversals = 0
+        else:
+            reversals = 0
+
+        indicators.append({
+            'subgroup_type': subgroup_type,
+            'subgroup': subgroup,
+            'n_periods': len(aucs),
+            'mean_auc': mean_auc,
+            'std_auc': std_auc,
+            'coefficient_of_variation': cv,
+            'max_drawdown': max_drawdown,
+            'trend_reversal_count': reversals,
+        })
+
+    return pd.DataFrame(indicators)
 
 
 def export_per_dataset_tables(dataset_key, dataset_name, results_df, deltas_df, output_dir,
@@ -1451,6 +1673,16 @@ def export_per_dataset_tables(dataset_key, dataset_name, results_df, deltas_df, 
 def run_batch_analysis(datasets_to_run=None):
     """Run drift analysis on all (or specified) datasets.
 
+    Statistical fixes applied:
+    - L3: Bootstrap replicates are split in half -- first half for trend tests,
+      second half for between-group comparisons to ensure independence.
+    - L4: FDR correction is pooled across ALL scores (not per-score) to properly
+      control the false discovery rate.
+    - L2: Clinically significant flag added to between-group comparisons using
+      MIN_CLINICALLY_SIGNIFICANT_DELTA from config.
+    - X3/X12: SOFA threshold sensitivity analysis loops over ACTIVE_SOFA_THRESHOLDS.
+    - X14: Volatility indicators computed and saved per dataset.
+
     Args:
         datasets_to_run: List of dataset keys to analyze. If None, uses default temporal datasets.
     """
@@ -1487,88 +1719,159 @@ def run_batch_analysis(datasets_to_run=None):
         # Get available scores
         score_cols = config.get('score_cols', [config.get('score_col', 'sofa')])
 
-        # Collect per-dataset results
+        # Collect per-dataset results across ALL scores for pooled FDR (L4)
         dataset_results = []
-        dataset_deltas = []
-        dataset_between_group = []
+        dataset_deltas = []          # trend test DFs (raw p-values, no FDR yet)
+        dataset_between_group = []   # between-group DFs (raw p-values, no FDR yet)
+        dataset_bootstrap_stores = {}  # score_col -> bootstrap_store
+        dataset_results_dfs = {}       # score_col -> results_df
 
         for score_col in score_cols:
             if score_col not in df.columns:
                 print(f"  Score '{score_col}' not found, skipping")
                 continue
 
-            print(f"\n  Analyzing {score_col.upper()} score...")
+            # X3/X12: For SOFA score, run sensitivity analysis over multiple thresholds.
+            # For non-SOFA scores, run once with the default threshold.
+            if score_col == 'sofa':
+                sofa_thresholds_to_run = ACTIVE_SOFA_THRESHOLDS
+            else:
+                sofa_thresholds_to_run = [None]  # None means "not applicable"
 
-            # Run drift analysis
-            results, bootstrap_store = analyze_drift(df, config, score_col)
+            for sofa_thresh in sofa_thresholds_to_run:
+                # Build a label for this score+threshold combination
+                if sofa_thresh is not None:
+                    score_label = f"{score_col}_t{sofa_thresh}"
+                    print(f"\n  Analyzing {score_col.upper()} score (threshold={sofa_thresh})...")
+                else:
+                    score_label = score_col
+                    print(f"\n  Analyzing {score_col.upper()} score...")
 
-            if not results.empty:
-                results['dataset'] = dataset_key
-                results['dataset_name'] = config['name']
-                results['score'] = score_col
-                all_results.append(results)
-                dataset_results.append(results)
+                # Run drift analysis
+                results, bootstrap_store = analyze_drift(df, config, score_col)
 
-                # Compute deltas with trend test (Page's L test + FDR correction)
-                print(f"  Computing trend significance (Page's L test + FDR correction)...")
-                deltas = compute_drift_trend_test(results, bootstrap_store)
+                if not results.empty:
+                    results['dataset'] = dataset_key
+                    results['dataset_name'] = config['name']
+                    results['score'] = score_label
+                    all_results.append(results)
+                    dataset_results.append(results)
+                    dataset_bootstrap_stores[score_label] = bootstrap_store
+                    dataset_results_dfs[score_label] = results
 
-                if deltas.empty:
-                    # Fallback to simple deltas if trend test fails
-                    deltas = compute_drift_deltas(results)
+                    # Compute deltas with trend test -- apply_fdr=False for pooled FDR (L4)
+                    print(f"  Computing trend significance (Page's L test, raw p-values)...")
+                    deltas = compute_drift_trend_test(results, bootstrap_store, apply_fdr=False)
 
-                if not deltas.empty:
-                    deltas['dataset'] = dataset_key
-                    deltas['dataset_name'] = config['name']
-                    deltas['score'] = score_col
-                    all_deltas.append(deltas)
-                    dataset_deltas.append(deltas)
+                    if deltas.empty:
+                        # Fallback to simple deltas if trend test fails
+                        deltas = compute_drift_deltas(results)
 
-                    # Compute between-group drift comparisons
-                    print(f"  Computing between-group drift comparisons...")
-                    bg_comparisons = compute_between_group_drift_comparison(deltas, bootstrap_store)
-                    if not bg_comparisons.empty:
-                        bg_comparisons['dataset'] = dataset_key
-                        bg_comparisons['dataset_name'] = config['name']
-                        bg_comparisons['score'] = score_col
-                        dataset_between_group.append(bg_comparisons)
-                        n_sig = bg_comparisons['significant'].sum()
-                        print(f"    {n_sig}/{len(bg_comparisons)} between-group comparisons significant")
+                    if not deltas.empty:
+                        deltas['dataset'] = dataset_key
+                        deltas['dataset_name'] = config['name']
+                        deltas['score'] = score_label
+                        all_deltas.append(deltas)
+                        dataset_deltas.append(deltas)
 
-                    # Print summary with significance
-                    print(f"\n  Drift Summary for {score_col.upper()}:")
-                    for _, row in deltas.iterrows():
-                        arrow = "↓" if row['delta'] < 0 else "↑"
-                        sig_marker = "*" if row.get('significant', False) else ""
-                        p_val = row.get('p_value_trend_fdr', row.get('p_value_trend', np.nan))
-                        p_str = f"p={p_val:.3f}" if pd.notna(p_val) and not np.isnan(p_val) else ""
-                        print(f"    {row['subgroup_type']:8} | {row['subgroup']:10} | {row['auc_first']:.3f} → {row['auc_last']:.3f} ({arrow}{abs(row['delta']):.3f}{sig_marker}) {p_str}")
+                        # Compute between-group drift comparisons -- apply_fdr=False (L4)
+                        print(f"  Computing between-group drift comparisons...")
+                        bg_comparisons = compute_between_group_drift_comparison(
+                            deltas, bootstrap_store, apply_fdr=False
+                        )
+                        if not bg_comparisons.empty:
+                            bg_comparisons['dataset'] = dataset_key
+                            bg_comparisons['dataset_name'] = config['name']
+                            bg_comparisons['score'] = score_label
+                            dataset_between_group.append(bg_comparisons)
+
+                    # X14: Compute volatility indicators
+                    volatility_df = compute_volatility_indicators(results)
+                    if not volatility_df.empty:
+                        volatility_df['score'] = score_label
+                        volatility_df['dataset'] = dataset_key
+                        dataset_dir = Path(OUTPUT_DIR) / dataset_key
+                        dataset_dir.mkdir(parents=True, exist_ok=True)
+                        vol_filename = f'volatility_indicators_{score_label}.csv'
+                        volatility_df.to_csv(dataset_dir / vol_filename, index=False)
+                        print(f"    Saved volatility indicators -> {vol_filename}")
+
+        # --- L4: Pooled FDR correction across ALL scores for this dataset ---
+        if dataset_deltas or dataset_between_group:
+            print(f"\n  Applying pooled FDR correction across all {len(dataset_deltas)} score-level trend tests "
+                  f"and {len(dataset_between_group)} between-group comparison sets...")
+            dataset_deltas, dataset_between_group = pool_fdr_correction(
+                dataset_deltas, dataset_between_group, alpha=0.05
+            )
+
+        # --- L2: Add clinically_significant flag to between-group comparisons ---
+        for bg_df in dataset_between_group:
+            if not bg_df.empty and 'delta_diff' in bg_df.columns:
+                bg_df['clinically_significant'] = (
+                    bg_df['significant'].fillna(False) &
+                    (bg_df['delta_diff'].abs() >= MIN_CLINICALLY_SIGNIFICANT_DELTA)
+                )
+            elif not bg_df.empty:
+                bg_df['clinically_significant'] = False
+
+        # Print summaries now that FDR is applied
+        for deltas in dataset_deltas:
+            if deltas.empty:
+                continue
+            score_label = deltas['score'].iloc[0] if 'score' in deltas.columns else '?'
+            print(f"\n  Drift Summary for {score_label.upper()} (pooled FDR):")
+            for _, row in deltas.iterrows():
+                arrow = "down" if row['delta'] < 0 else "up"
+                sig_marker = "*" if row.get('significant', False) else ""
+                p_val = row.get('p_value_pooled_fdr', row.get('p_value_trend_fdr', row.get('p_value_trend', np.nan)))
+                p_str = f"p={p_val:.3f}" if pd.notna(p_val) and not np.isnan(p_val) else ""
+                print(f"    {row['subgroup_type']:8} | {row['subgroup']:10} | {row['auc_first']:.3f} -> {row['auc_last']:.3f} ({arrow} {abs(row['delta']):.3f}{sig_marker}) {p_str}")
+
+        for bg_df in dataset_between_group:
+            if not bg_df.empty:
+                n_sig = bg_df['significant'].sum()
+                n_clin = bg_df['clinically_significant'].sum() if 'clinically_significant' in bg_df.columns else 0
+                score_label = bg_df['score'].iloc[0] if 'score' in bg_df.columns else '?'
+                print(f"    Between-group ({score_label}): {n_sig}/{len(bg_df)} stat. significant, {n_clin} clinically significant")
 
         # Run Xiaoli's recommended metrics analysis (SOFA only)
+        # X3/X12: Run for each SOFA threshold in the sensitivity analysis
         sofa_col = 'sofa' if 'sofa' in df.columns else None
         if sofa_col:
-            print(f"\n  Running Xiaoli metrics analysis (SOFA>={SOFA_THRESHOLD} threshold)...")
-            class_results, calib_results, fairness_results, fairness_detailed = analyze_xiaoli_metrics(df, config, sofa_col)
+            for sofa_thresh in ACTIVE_SOFA_THRESHOLDS:
+                # Temporarily override SOFA_THRESHOLD for this run
+                global SOFA_THRESHOLD
+                old_threshold = SOFA_THRESHOLD
+                SOFA_THRESHOLD = sofa_thresh
 
-            # Save Xiaoli metrics to dataset directory
-            dataset_dir = Path(OUTPUT_DIR) / dataset_key
-            dataset_dir.mkdir(parents=True, exist_ok=True)
+                print(f"\n  Running Xiaoli metrics analysis (SOFA>={sofa_thresh} threshold)...")
+                class_results, calib_results, fairness_results, fairness_detailed = analyze_xiaoli_metrics(
+                    df, config, sofa_col
+                )
 
-            if not class_results.empty:
-                class_results.to_csv(dataset_dir / 'classification_metrics.csv', index=False)
-                print(f"    Saved classification metrics (TPR, FPR, PPV, NPV)")
+                # Save Xiaoli metrics to dataset directory with threshold suffix
+                dataset_dir = Path(OUTPUT_DIR) / dataset_key
+                dataset_dir.mkdir(parents=True, exist_ok=True)
+                thresh_suffix = f'_t{sofa_thresh}'
 
-            if not calib_results.empty:
-                calib_results.to_csv(dataset_dir / 'calibration_metrics.csv', index=False)
-                print(f"    Saved calibration metrics (Brier score, SMR)")
+                if not class_results.empty:
+                    class_results.to_csv(dataset_dir / f'classification_metrics{thresh_suffix}.csv', index=False)
+                    print(f"    Saved classification metrics (TPR, FPR, PPV, NPV) for threshold={sofa_thresh}")
 
-            if not fairness_results.empty:
-                fairness_results.to_csv(dataset_dir / 'fairness_metrics.csv', index=False)
-                print(f"    Saved fairness metrics (demographic parity, equalized odds)")
+                if not calib_results.empty:
+                    calib_results.to_csv(dataset_dir / f'calibration_metrics{thresh_suffix}.csv', index=False)
+                    print(f"    Saved calibration metrics (Brier score, SMR) for threshold={sofa_thresh}")
 
-            if not fairness_detailed.empty:
-                fairness_detailed.to_csv(dataset_dir / 'fairness_detailed.csv', index=False)
-                print(f"    Saved detailed fairness metrics per subgroup (Gender: Male/Female, Race, Age)")
+                if not fairness_results.empty:
+                    fairness_results.to_csv(dataset_dir / f'fairness_metrics{thresh_suffix}.csv', index=False)
+                    print(f"    Saved fairness metrics for threshold={sofa_thresh}")
+
+                if not fairness_detailed.empty:
+                    fairness_detailed.to_csv(dataset_dir / f'fairness_detailed{thresh_suffix}.csv', index=False)
+                    print(f"    Saved detailed fairness metrics for threshold={sofa_thresh}")
+
+                # Restore original threshold
+                SOFA_THRESHOLD = old_threshold
 
         # Export per-dataset tables (not cross-dataset)
         if dataset_results and dataset_deltas:
@@ -1584,6 +1887,24 @@ def run_batch_analysis(datasets_to_run=None):
                 between_group_df=combined_bg
             )
 
+            # eICU regional analysis (X11/L5): break down by hospital region and teaching status
+            if args.eicu_regional and dataset_key == 'eicu_combined':
+                from supplementary_analysis import analyze_eicu_regional
+                print(f"\n  Running eICU regional breakdown analysis...")
+                analyze_eicu_regional(df, config)
+
+            # X3/X12: Also save per-threshold drift results for SOFA
+            if any(s.startswith('sofa_t') for s in combined_dataset_deltas['score'].unique()):
+                dataset_dir = Path(OUTPUT_DIR) / dataset_key
+                for score_label in combined_dataset_deltas['score'].unique():
+                    if score_label.startswith('sofa_t'):
+                        thresh_deltas = combined_dataset_deltas[combined_dataset_deltas['score'] == score_label]
+                        thresh_deltas.to_csv(dataset_dir / f'drift_results_{score_label}.csv', index=False)
+
+                        thresh_results = combined_dataset_results[combined_dataset_results['score'] == score_label]
+                        if not thresh_results.empty:
+                            thresh_results.to_csv(dataset_dir / f'drift_deltas_{score_label}.csv', index=False)
+
     # Combine all results (kept for internal use, but not saved as cross-dataset comparison)
     if all_results:
         combined_results = pd.concat(all_results, ignore_index=True)
@@ -1598,9 +1919,13 @@ def run_batch_analysis(datasets_to_run=None):
         print('='*60)
         print(f"Per-dataset results saved to: output/{{dataset}}/ subdirectories")
         print(f"  - drift_results.csv (AUC values per period)")
-        print(f"  - drift_deltas.csv (delta changes with p-values)")
+        print(f"  - drift_deltas.csv (delta changes with p-values, pooled FDR)")
         print(f"  - summary_by_score.csv (overall summary)")
         print(f"  - subgroup_drift.csv (subgroup-level analysis)")
+        print(f"  - between_group_comparisons.csv (with clinically_significant column)")
+        print(f"  - volatility_indicators_{{score}}.csv (CV, max drawdown, reversals)")
+        if any('sofa' in s for s in combined_deltas['score'].unique() if isinstance(s, str)):
+            print(f"  - drift_results_sofa_t{{N}}.csv (SOFA threshold sensitivity)")
         print(f"\nDatasets analyzed: {', '.join(datasets_to_run)}")
 
         return combined_results, combined_deltas

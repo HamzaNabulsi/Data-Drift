@@ -30,9 +30,13 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import argparse
 from pathlib import Path
+from scipy.stats import chi2_contingency
 from sklearn.metrics import roc_auc_score
+import logging
 import warnings
 warnings.filterwarnings('ignore')
+
+logger = logging.getLogger(__name__)
 
 # =============================================================================
 # BOOTSTRAP CONFIGURATION (see batch_analysis.py for details)
@@ -411,6 +415,358 @@ def generate_supplementary_figure(results_df, deltas_df, dataset_name, output_na
     return output_path
 
 
+def _cramers_v(confusion_matrix):
+    """Compute Cramér's V statistic for a contingency table.
+
+    Args:
+        confusion_matrix: A 2-D array-like contingency table.
+
+    Returns:
+        float: Cramér's V effect size (0 = no association, 1 = perfect).
+    """
+    chi2 = chi2_contingency(confusion_matrix)[0]
+    n = confusion_matrix.sum().sum()
+    min_dim = min(confusion_matrix.shape[0], confusion_matrix.shape[1]) - 1
+    if min_dim == 0 or n == 0:
+        return np.nan
+    return np.sqrt(chi2 / (n * min_dim))
+
+
+def analyze_care_demographics_correlation(df, config):
+    """Cross-tabulate care frequency quartiles with demographics and test independence.
+
+    Performs the following (L6 analysis):
+    - Cross-tabulates care quartiles with age, gender, and race individually
+    - Computes intersectional cross-tabulation: care quartile × age × gender × race
+    - For each intersection, reports sample size, mean care frequency, and AUC drift
+    - Runs chi-squared test and Cramér's V for each demographic dimension
+    - Saves results CSV and heatmap figure
+
+    Args:
+        df: DataFrame with columns care_quartile, age_group, gender_std, race_std,
+            outcome_binary, sofa, and the care frequency column.
+        config: Dict with keys 'name', 'care_col', 'dataset_key'.
+
+    Returns:
+        pd.DataFrame: Intersectional summary rows.
+    """
+    dataset_key = config.get('dataset_key', config.get('key', 'unknown'))
+    care_col = config['care_col']
+    dataset_output_dir = OUTPUT_DIR / dataset_key
+    dataset_output_dir.mkdir(exist_ok=True)
+
+    demographic_cols = {
+        'Age': 'age_group',
+        'Gender': 'gender_std',
+        'Race': 'race_std',
+    }
+
+    # ------------------------------------------------------------------
+    # 1. Chi-squared / Cramér's V for each demographic vs care quartile
+    # ------------------------------------------------------------------
+    stat_rows = []
+    for demo_label, demo_col in demographic_cols.items():
+        ct = pd.crosstab(df['care_quartile'], df[demo_col])
+        if ct.shape[0] < 2 or ct.shape[1] < 2:
+            continue
+        chi2, p, dof, _ = chi2_contingency(ct)
+        cv = _cramers_v(ct)
+        stat_rows.append({
+            'demographic': demo_label,
+            'chi2': chi2,
+            'p_value': p,
+            'dof': dof,
+            'cramers_v': cv,
+        })
+    stats_df = pd.DataFrame(stat_rows)
+
+    # ------------------------------------------------------------------
+    # 2. Intersectional breakdown: quartile × age × gender × race
+    # ------------------------------------------------------------------
+    intersect_rows = []
+    grouped = df.groupby(['care_quartile', 'age_group', 'gender_std', 'race_std'], observed=True)
+    for (q, age, gender, race), grp in grouped:
+        row = {
+            'care_quartile': q,
+            'age_group': age,
+            'gender': gender,
+            'race': race,
+            'n': len(grp),
+            'mean_care_frequency': grp[care_col].mean(),
+        }
+        # AUC drift proxy: compute AUC if enough data
+        auc_val = compute_auc(grp['outcome_binary'].values, grp['sofa'].values) if len(grp) >= 30 else np.nan
+        row['auc'] = auc_val
+        intersect_rows.append(row)
+    intersect_df = pd.DataFrame(intersect_rows)
+
+    # ------------------------------------------------------------------
+    # 3. Combine and save
+    # ------------------------------------------------------------------
+    # Append chi-sq stats as a separate section in the CSV
+    combined_path = dataset_output_dir / 'care_demographics_correlation.csv'
+    with open(combined_path, 'w') as fh:
+        fh.write('# Chi-squared tests: care quartile vs demographics\n')
+        stats_df.to_csv(fh, index=False)
+        fh.write('\n# Intersectional breakdown: quartile x age x gender x race\n')
+        intersect_df.to_csv(fh, index=False)
+    print(f"Saved: {combined_path.relative_to(BASE_DIR)}")
+
+    # ------------------------------------------------------------------
+    # 4. Heatmap: mean care frequency by care quartile × race
+    # ------------------------------------------------------------------
+    pivot = intersect_df.groupby(['care_quartile', 'race'])['mean_care_frequency'].mean().unstack(fill_value=np.nan)
+    if not pivot.empty:
+        fig, ax = plt.subplots(figsize=(8, 5))
+        sns.heatmap(pivot, annot=True, fmt='.2f', cmap='YlOrRd', ax=ax, linewidths=0.5)
+        ax.set_title(f'{config["name"]} — Mean Care Frequency\nby Care Quartile × Race')
+        ax.set_ylabel('Care Quartile')
+        ax.set_xlabel('Race')
+        fig_path = SUPPLEMENTARY_FIGURES_DIR / f'{dataset_key}_care_demographics_heatmap.png'
+        fig.savefig(fig_path, dpi=300, bbox_inches='tight')
+        plt.close(fig)
+        print(f"Saved: {fig_path.relative_to(BASE_DIR)}")
+
+    return intersect_df
+
+
+def generate_care_phenotype_demographic_figure(results_df, df, config):
+    """Generate care phenotype figures focused on race-age-gender interactions (X13).
+
+    Instead of showing care quartile drift alone, this produces:
+    - Panel A: Care quartile AUC drift within racial subgroups
+    - Panel B: Combined scatter of care frequency vs AUC drift colored by race,
+      shaped by gender
+
+    NOTE: Care phenotype analysis is only available in MIMIC cohorts and is not
+    suitable as a main analysis per Xiaoli's feedback.
+
+    Args:
+        results_df: DataFrame from analyze_sofa_drift (long format with AUC per
+            subgroup and time period).
+        df: Original prepared DataFrame with individual-level data.
+        config: Dict with keys 'name', 'care_col', 'dataset_key'.
+    """
+    dataset_key = config.get('dataset_key', config.get('key', 'unknown'))
+    care_col = config['care_col']
+
+    # ------------------------------------------------------------------
+    # Compute AUC by care quartile WITHIN each race
+    # ------------------------------------------------------------------
+    races = ['White', 'Black', 'Hispanic', 'Asian']
+    quartiles = ['Q1 (High)', 'Q2', 'Q3', 'Q4 (Low)']
+    time_periods = sorted(df['admission_year'].unique())
+
+    within_rows = []
+    for race in races:
+        for q in quartiles:
+            for period in time_periods:
+                subset = df[(df['race_std'] == race) &
+                            (df['care_quartile'] == q) &
+                            (df['admission_year'] == period)]
+                if len(subset) >= 30:
+                    auc_val = compute_auc(subset['outcome_binary'].values, subset['sofa'].values)
+                    within_rows.append({
+                        'race': race,
+                        'care_quartile': q,
+                        'time_period': period,
+                        'auc': auc_val,
+                        'n': len(subset),
+                    })
+    within_df = pd.DataFrame(within_rows)
+
+    # ------------------------------------------------------------------
+    # Panel A: line plot — AUC over time for each care quartile, faceted by race
+    # ------------------------------------------------------------------
+    fig, axes = plt.subplots(1, 2, figsize=(16, 6))
+
+    ax_a = axes[0]
+    for race in races:
+        for q in quartiles:
+            sub = within_df[(within_df['race'] == race) & (within_df['care_quartile'] == q)]
+            if sub.empty:
+                continue
+            sub = sub.sort_values('time_period')
+            color = SUBGROUP_COLORS.get(q, '#666')
+            linestyle = {'White': '-', 'Black': '--', 'Hispanic': '-.', 'Asian': ':'}.get(race, '-')
+            label = f'{race} / {q}'
+            ax_a.plot(sub['time_period'].values, sub['auc'].values,
+                      linestyle=linestyle, color=color, marker='o', markersize=4,
+                      linewidth=1.2, label=label, alpha=0.8)
+
+    ax_a.set_ylabel('SOFA AUC')
+    ax_a.set_xlabel('Time Period')
+    ax_a.set_title('A. Care Quartile Drift Within Racial Subgroups')
+    ax_a.set_ylim(0.45, 1.0)
+    # Compact legend outside the axes
+    ax_a.legend(fontsize=5, ncol=2, loc='lower left', framealpha=0.7)
+
+    # ------------------------------------------------------------------
+    # Panel B: scatter — mean care frequency vs AUC, colored by race, shaped by gender
+    # ------------------------------------------------------------------
+    ax_b = axes[1]
+    gender_markers = {'Male': 'o', 'Female': 's'}
+    race_colors = {r: SUBGROUP_COLORS.get(r, '#666') for r in races}
+
+    scatter_rows = []
+    for race in races:
+        for gender in ['Male', 'Female']:
+            for q in quartiles:
+                subset = df[(df['race_std'] == race) &
+                            (df['gender_std'] == gender) &
+                            (df['care_quartile'] == q)]
+                if len(subset) < 30:
+                    continue
+                auc_val = compute_auc(subset['outcome_binary'].values, subset['sofa'].values)
+                scatter_rows.append({
+                    'race': race,
+                    'gender': gender,
+                    'care_quartile': q,
+                    'mean_care_freq': subset[care_col].mean(),
+                    'auc': auc_val,
+                })
+    scatter_df = pd.DataFrame(scatter_rows)
+
+    if not scatter_df.empty:
+        for gender, marker in gender_markers.items():
+            for race, color in race_colors.items():
+                sub = scatter_df[(scatter_df['gender'] == gender) & (scatter_df['race'] == race)]
+                if sub.empty:
+                    continue
+                ax_b.scatter(sub['mean_care_freq'], sub['auc'],
+                             c=color, marker=marker, s=60, alpha=0.8,
+                             edgecolors='k', linewidth=0.3,
+                             label=f'{race} / {gender}')
+
+    ax_b.set_xlabel('Mean Care Frequency')
+    ax_b.set_ylabel('SOFA AUC')
+    ax_b.set_title('B. Care Frequency vs AUC by Race & Gender')
+    ax_b.legend(fontsize=6, ncol=2, loc='lower left', framealpha=0.7)
+
+    fig.suptitle(
+        f'{config["name"]} — Care Phenotype × Demographics\n'
+        '(MIMIC only; not suitable as primary analysis per Xiaoli\'s feedback)',
+        fontsize=12, y=1.02,
+    )
+    fig.tight_layout()
+    fig_path = SUPPLEMENTARY_FIGURES_DIR / f'{dataset_key}_care_phenotype_demographics.png'
+    fig.savefig(fig_path, dpi=300, bbox_inches='tight')
+    plt.close(fig)
+    print(f"Saved: {fig_path.relative_to(BASE_DIR)}")
+
+
+def analyze_eicu_regional(df, config):
+    """Analyze eICU drift broken down by hospital region and teaching status (X11/L5).
+
+    If the dataset is eICU and hospital metadata columns (hospitalregion,
+    teaching) are present, this function:
+    - Groups hospitals by region (Midwest, Northeast, South, West)
+    - Groups by teaching vs non-teaching status
+    - Runs the standard SOFA drift analysis within each region/hospital type
+    - Compares drift patterns across regions (especially for Black patients)
+    - Saves results to output/eicu_combined/regional_breakdown.csv
+
+    If the required columns are missing the function logs a warning and returns.
+
+    Args:
+        df: Prepared eICU DataFrame.
+        config: Dict with keys 'name', 'dataset_key', etc.
+
+    Returns:
+        pd.DataFrame or None: Regional breakdown results, or None if skipped.
+    """
+    required_cols = {'hospitalregion', 'teaching'}
+    available = set(df.columns)
+    missing = required_cols - available
+    if missing:
+        logger.warning(
+            "eICU regional analysis skipped — missing columns: %s. "
+            "Ensure hospital metadata is merged into the input data.",
+            ', '.join(sorted(missing)),
+        )
+        print(f"WARNING: eICU regional analysis skipped — missing columns: {', '.join(sorted(missing))}")
+        return None
+
+    eicu_output_dir = OUTPUT_DIR / 'eicu_combined'
+    eicu_output_dir.mkdir(exist_ok=True)
+
+    regions = df['hospitalregion'].dropna().unique()
+    teaching_statuses = df['teaching'].dropna().unique()
+
+    all_rows = []
+
+    # ------------------------------------------------------------------
+    # 1. Drift by region
+    # ------------------------------------------------------------------
+    for region in sorted(regions):
+        region_df = df[df['hospitalregion'] == region]
+        if len(region_df) < 50:
+            continue
+        results = analyze_sofa_drift(region_df, f'eICU_{region}', compute_ci=False)
+        results['region'] = region
+        results['teaching_status'] = 'All'
+        deltas = compute_deltas(results)
+        if not deltas.empty:
+            deltas['region'] = region
+            deltas['teaching_status'] = 'All'
+            all_rows.append(deltas)
+
+    # ------------------------------------------------------------------
+    # 2. Drift by teaching status
+    # ------------------------------------------------------------------
+    for ts in sorted(teaching_statuses):
+        ts_df = df[df['teaching'] == ts]
+        ts_label = 'Teaching' if ts else 'Non-Teaching'
+        if len(ts_df) < 50:
+            continue
+        results = analyze_sofa_drift(ts_df, f'eICU_{ts_label}', compute_ci=False)
+        results['region'] = 'All'
+        results['teaching_status'] = ts_label
+        deltas = compute_deltas(results)
+        if not deltas.empty:
+            deltas['region'] = 'All'
+            deltas['teaching_status'] = ts_label
+            all_rows.append(deltas)
+
+    # ------------------------------------------------------------------
+    # 3. Drift by region × teaching (focus on Black patients per L5)
+    # ------------------------------------------------------------------
+    for region in sorted(regions):
+        for ts in sorted(teaching_statuses):
+            sub = df[(df['hospitalregion'] == region) & (df['teaching'] == ts)]
+            ts_label = 'Teaching' if ts else 'Non-Teaching'
+            if len(sub) < 50:
+                continue
+            results = analyze_sofa_drift(sub, f'eICU_{region}_{ts_label}', compute_ci=False)
+            results['region'] = region
+            results['teaching_status'] = ts_label
+            deltas = compute_deltas(results)
+            if not deltas.empty:
+                deltas['region'] = region
+                deltas['teaching_status'] = ts_label
+                all_rows.append(deltas)
+
+    if not all_rows:
+        print("WARNING: No regional breakdown rows produced (insufficient data).")
+        return None
+
+    regional_df = pd.concat(all_rows, ignore_index=True)
+    out_path = eicu_output_dir / 'regional_breakdown.csv'
+    regional_df.to_csv(out_path, index=False)
+    print(f"Saved: {out_path.relative_to(BASE_DIR)}")
+
+    # Highlight Black-patient drift across regions
+    black_rows = regional_df[regional_df['subgroup'] == 'Black']
+    if not black_rows.empty:
+        print("\n  Black-patient AUC drift by region:")
+        for _, row in black_rows.iterrows():
+            region_label = row.get('region', '?')
+            ts_label = row.get('teaching_status', '?')
+            print(f"    Region={region_label}, Teaching={ts_label}: delta={row['delta']:+.3f}")
+
+    return regional_df
+
+
 def run_mimic_sofa_analysis():
     """Run SOFA + care frequency analysis for MIMIC-IV subsets."""
     print("=" * 60)
@@ -463,6 +819,12 @@ def run_mimic_sofa_analysis():
 
         # Generate figure
         generate_supplementary_figure(results, deltas, ds['name'], ds['output_fig'])
+
+        # L6: Care quartile vs demographics correlation analysis
+        analyze_care_demographics_correlation(df, ds)
+
+        # X13: Care phenotype figures focused on race-age-gender interactions
+        generate_care_phenotype_demographic_figure(results, df, ds)
 
         # Store
         results['dataset_key'] = ds['key']

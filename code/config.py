@@ -332,6 +332,45 @@ ANALYSIS_CONFIG = {
 }
 
 # ============================================================
+# SOFA THRESHOLD SENSITIVITY ANALYSIS (X3/X12)
+# ============================================================
+SOFA_THRESHOLDS = [2, 6, 8, 10]  # Sensitivity analysis thresholds (X3/X12)
+
+# ============================================================
+# eICU REGIONAL BREAKDOWN (X11/L5)
+# ============================================================
+EICU_REGIONS = ['Midwest', 'Northeast', 'South', 'West']
+EICU_HOSPITAL_TYPES = ['teaching', 'non-teaching']
+
+# ============================================================
+# TIME PERIOD STANDARDIZATION (X11)
+# ============================================================
+# MIMIC-IV time periods: '2008 - 2010', '2011 - 2013', '2014 - 2016',
+#   '2017 - 2019', '2020 - 2022' (defined in DATASETS['mimiciv']['year_bins'])
+# eICU time bins are determined by available data in each source
+#   (eicu: 2014-2015, eicu_new: 2020-2021, eicu_combined: [2014, 2015, 2020, 2021])
+
+# ============================================================
+# INTERSECTIONAL GROUPINGS (X11)
+# ============================================================
+MAIN_FIGURE_GROUPINGS = ['gender-race', 'age-race', 'age-gender-race']
+SINGLE_SUBGROUP_TYPES = ['Age', 'Gender', 'Race']  # These go to supplement only
+
+# ============================================================
+# MINIMUM CLINICALLY SIGNIFICANT EFFECT SIZE (L2)
+# ============================================================
+# Minimum clinically significant AUROC difference (L2)
+# Based on published minimally important differences for critical care prediction models
+# Reference: Mandrekar (2010) - "Receiver Operating Characteristic Curve in Diagnostic Test Assessment"
+MIN_CLINICALLY_SIGNIFICANT_DELTA = 0.05  # 0.05 AUROC difference
+
+# ============================================================
+# VOLATILITY / FLUCTUATION CONFIG (X14)
+# ============================================================
+# Volatility indicators for drift assessment (X14)
+VOLATILITY_WINDOW = 3  # Rolling window for coefficient of variation
+
+# ============================================================
 # HELPER FUNCTION
 # ============================================================
 def get_active_config():

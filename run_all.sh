@@ -12,6 +12,8 @@
 #   ./run_all.sh --setup          # Only setup environment
 #   ./run_all.sh --analysis       # Only run analysis
 #   ./run_all.sh --figures        # Only generate figures
+#   ./run_all.sh --review         # Only generate the review response document
+#   ./run_all.sh --sofa-thresholds "2 8 10"  # Custom SOFA thresholds
 #
 # Bootstrap iterations control confidence interval accuracy:
 #   --fast           :   2 iterations (~1 min)   - for testing
@@ -19,13 +21,17 @@
 #   --bootstrap 1000 : 1000 iterations (~2-4 hr) - for production/publication
 #
 # Requirements:
-#   - Python 3.9+
+#   - Python 3.10+
 #   - uv package manager (install with: pip install uv)
 #
 # Outputs:
 #   - output/all_datasets_drift_results.csv  (full results)
 #   - output/all_datasets_drift_deltas.csv   (drift changes)
-#   - figures/fig1-7*.png                    (visualizations)
+#   - output/volatility_indicators.csv       (fluctuation/volatility metrics)
+#   - output/regional_breakdown.csv          (eICU regional analysis)
+#   - output/care_demographics_correlation.csv (care quartile vs demographics)
+#   - figures/fig1-6*.png                    (main figures, 6 total per X2)
+#   - output/review_response.pdf             (reviewer response document)
 #
 # Author: Data Drift Analysis Project
 # Date: 2024-12
@@ -75,8 +81,10 @@ activate_venv() {
 RUN_SETUP=true
 RUN_ANALYSIS=true
 RUN_FIGURES=true
-TOTAL_STEPS=6
+RUN_REVIEW=false
+TOTAL_STEPS=8
 BOOTSTRAP_ARGS=""
+SOFA_THRESHOLD_ARGS=""
 
 # Parse all arguments
 while [[ $# -gt 0 ]]; do
@@ -99,6 +107,14 @@ while [[ $# -gt 0 ]]; do
             TOTAL_STEPS=1
             shift
             ;;
+        --review)
+            RUN_SETUP=false
+            RUN_ANALYSIS=false
+            RUN_FIGURES=false
+            RUN_REVIEW=true
+            TOTAL_STEPS=1
+            shift
+            ;;
         --fast)
             BOOTSTRAP_ARGS="--fast"
             echo -e "${YELLOW}FAST MODE: Using 2 bootstrap iterations (for testing)${NC}"
@@ -109,15 +125,43 @@ while [[ $# -gt 0 ]]; do
             echo -e "${YELLOW}BOOTSTRAP: Using $2 iterations${NC}"
             shift 2
             ;;
+        --sofa-thresholds)
+            SOFA_THRESHOLD_ARGS="--sofa-thresholds $2"
+            echo -e "${YELLOW}SOFA THRESHOLDS: $2${NC}"
+            shift 2
+            ;;
         *)
             echo -e "${RED}Unknown option: $1${NC}"
-            echo "Usage: ./run_all.sh [--setup|--analysis|--figures] [--fast|--bootstrap N]"
+            echo "Usage: ./run_all.sh [--setup|--analysis|--figures|--review] [--fast|--bootstrap N] [--sofa-thresholds \"2 8 10\"]"
             exit 1
             ;;
     esac
 done
 
 STEP=0
+
+# ============================================================
+# REVIEW-ONLY MODE
+# ============================================================
+if [ "$RUN_REVIEW" = true ]; then
+    STEP=$((STEP + 1))
+    print_step $STEP "Generating Review Response Document"
+
+    activate_venv
+
+    echo "Creating review response document..."
+    if [ -f "temporal/create_review_response.py" ]; then
+        python temporal/create_review_response.py
+    else
+        echo "Review response script not found (responses consolidated in temporal/reviewer-responses.md)"
+    fi
+
+    echo ""
+    echo -e "${GREEN}Review response document generated!${NC}"
+    echo "  Output: output/review_response.pdf"
+    echo ""
+    exit 0
+fi
 
 # ============================================================
 # STEP 1: Check Prerequisites
@@ -132,7 +176,7 @@ if [ "$RUN_SETUP" = true ]; then
     elif command_exists python; then
         PYTHON_CMD="python"
     else
-        echo -e "${RED}ERROR: Python not found. Please install Python 3.9+${NC}"
+        echo -e "${RED}ERROR: Python not found. Please install Python 3.10+${NC}"
         exit 1
     fi
 
@@ -191,7 +235,7 @@ if [ "$RUN_ANALYSIS" = true ]; then
     echo "  - eICU-New (371,855 patients)"
     echo ""
 
-    python code/batch_analysis.py $BOOTSTRAP_ARGS
+    python code/batch_analysis.py $BOOTSTRAP_ARGS $SOFA_THRESHOLD_ARGS
 
     echo ""
     echo "MIMIC-IV Subsets (SOFA + Care Frequency):"
@@ -201,12 +245,29 @@ if [ "$RUN_ANALYSIS" = true ]; then
 
     python code/supplementary_analysis.py $BOOTSTRAP_ARGS
 
+    # ============================================================
+    # STEP 5: eICU Regional Analysis
+    # ============================================================
+    if [ -d "data/eicu" ] || [ -f "data/eicu.csv" ] || [ -f "data/eICU_data.csv" ]; then
+        STEP=$((STEP + 1))
+        print_step $STEP "Running eICU Regional Analysis"
+
+        echo "Breaking down eICU results by region (Midwest, Northeast, South, West)..."
+        python code/batch_analysis.py --eicu-regional $BOOTSTRAP_ARGS $SOFA_THRESHOLD_ARGS || echo -e "${YELLOW}eICU regional analysis encountered an issue (non-fatal)${NC}"
+
+        echo ""
+        echo -e "${GREEN}eICU regional analysis complete!${NC}"
+    else
+        echo ""
+        echo -e "${YELLOW}Skipping eICU regional analysis (eICU data not found)${NC}"
+    fi
+
     echo ""
     echo -e "${GREEN}Batch analysis complete!${NC}"
 fi
 
 # ============================================================
-# STEP 5: Generate Figures
+# STEP 6: Generate Figures
 # ============================================================
 if [ "$RUN_FIGURES" = true ]; then
     STEP=$((STEP + 1))
@@ -221,10 +282,26 @@ if [ "$RUN_FIGURES" = true ]; then
 
     echo ""
     echo -e "${GREEN}Figure generation complete!${NC}"
+
+    # ============================================================
+    # STEP 7: Generate Review Response Document
+    # ============================================================
+    STEP=$((STEP + 1))
+    print_step $STEP "Generating Review Response Document"
+
+    echo "Creating review response document..."
+    if [ -f "temporal/create_review_response.py" ]; then
+        python temporal/create_review_response.py
+    else
+        echo "Review response script not found (responses consolidated in temporal/reviewer-responses.md)"
+    fi
+
+    echo ""
+    echo -e "${GREEN}Review response document generated!${NC}"
 fi
 
 # ============================================================
-# STEP 6: Summary
+# STEP 8: Summary
 # ============================================================
 STEP=$((STEP + 1))
 print_step $STEP "Summary"
@@ -245,7 +322,7 @@ echo ""
 
 if [ -d "figures" ]; then
     echo "  Figures (figures/):"
-    for f in figures/fig*.png; do
+    for f in figures/fig*.png figures/fig*.svg; do
         [ -f "$f" ] && echo "    - $(basename $f)"
     done
 fi
@@ -256,11 +333,16 @@ echo -e "${BLUE}  PIPELINE COMPLETE${NC}"
 echo -e "${BLUE}========================================${NC}"
 echo ""
 echo "Key outputs:"
-echo "  - Full Results: output/all_datasets_drift_results.csv"
-echo "  - Drift Deltas: output/all_datasets_drift_deltas.csv"
-echo "  - Key Figure: figures/fig7_money_figure.png"
+echo "  - Full Results:       output/all_datasets_drift_results.csv"
+echo "  - Drift Deltas:       output/all_datasets_drift_deltas.csv"
+echo "  - Volatility:         output/volatility_indicators.csv"
+echo "  - Regional Breakdown: output/regional_breakdown.csv"
+echo "  - Care Demographics:  output/care_demographics_correlation.csv"
+echo "  - Main Figures:       figures/fig2_gender_race.png, fig3_age_race.png, fig4_gender_age_race.png, fig5_mouthcare.png, fig6_mechvent.png"
+echo "  - Review Response:    output/review_response.pdf"
 echo ""
 echo "To regenerate specific outputs:"
 echo "  ./run_all.sh --analysis   # Rerun analysis"
 echo "  ./run_all.sh --figures    # Regenerate figures"
+echo "  ./run_all.sh --review     # Regenerate review response only"
 echo ""
