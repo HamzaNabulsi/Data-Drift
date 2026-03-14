@@ -106,16 +106,16 @@ Results are saved to `volatility_indicators.csv`.
 
 Each dataset is analyzed and presented independently — no cross-dataset figures that mix populations with different available demographics.
 
-### Main Figures (6 maximum)
+### Main Figures (per dataset)
 
 | Figure | Content |
 |--------|---------|
 | **1** | Study flow diagram and cohort characteristics |
-| **2** | MIMIC Combined: intersectional drift, fairness, calibration |
-| **3** | eICU Combined: intersectional drift, fairness, calibration |
-| **4** | Saltz (Europe) + Zhejiang (Asia): gender-age intersectional drift |
-| **5** | Nursing care phenotypes with demographic cross-tabulation (MIMIC only) |
-| **6** | Summary: per-dataset non-uniform drift evidence |
+| **2** | MIMIC Combined: subgroup drift, intersectional, calibration, fairness |
+| **3** | eICU Combined: subgroup drift, intersectional, calibration, fairness |
+| **4** | Saltz (Europe): subgroup drift, calibration, fairness |
+| **5** | Zhejiang (Asia): subgroup drift, calibration, fairness |
+| **6** | Care phenotypes with demographic cross-tabulation (MIMIC only) |
 
 ### MIMIC Combined (2001--2022)
 
@@ -136,6 +136,7 @@ Each dataset is analyzed and presented independently — no cross-dataset figure
 ### Saltz ICU (2013--2021, Europe)
 
 ![Saltz — Subgroup Drift](figures/fig3_saltz.png)
+![Saltz — Intersectional](figures/fig3b_saltz_intersectional.png)
 ![Saltz Calibration](figures/fig7_saltz_calibration.png)
 ![Saltz Fairness](figures/fig8_saltz_fairness.png)
 ![Saltz VA CAN Drift](figures/fig6b_saltz_va_can_drift.png)
@@ -143,25 +144,15 @@ Each dataset is analyzed and presented independently — no cross-dataset figure
 ### Zhejiang ICU (2011--2022, China)
 
 ![Zhejiang — Subgroup Drift](figures/fig4_zhejiang.png)
+![Zhejiang — Intersectional](figures/fig4b_zhejiang_intersectional.png)
 ![Zhejiang Calibration](figures/fig7_zhejiang_calibration.png)
 ![Zhejiang Fairness](figures/fig8_zhejiang_fairness.png)
 ![Zhejiang VA CAN Drift](figures/fig6b_zhejiang_va_can_drift.png)
 
-### Summary
-
-![Summary Figure](figures/fig5_money_figure.png)
-
-### Supplementary Figures
-
-<details>
-<summary>Click to expand supplementary figures</summary>
-
-#### Care Phenotypes (MIMIC only)
+### Care Phenotypes (MIMIC only)
 
 ![Mouthcare](figures/supplementary/figS1_mimic_mouthcare.png)
 ![Mechanical Ventilation](figures/supplementary/figS2_mimic_mechvent.png)
-
-</details>
 
 ---
 
