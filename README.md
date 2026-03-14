@@ -154,6 +154,38 @@ Each dataset is analyzed and presented independently — no cross-dataset figure
 ![Mouthcare](figures/supplementary/figS1_mimic_mouthcare.png)
 ![Mechanical Ventilation](figures/supplementary/figS2_mimic_mechvent.png)
 
+#### Care Phenotype Demographics (L6)
+
+![Mouthcare — Demographics Heatmap](figures/supplementary/mouthcare_care_demographics_heatmap.png)
+![Mouthcare — Care Phenotype × Demographics](figures/supplementary/mouthcare_care_phenotype_demographics.png)
+![Mechanical Ventilation — Demographics Heatmap](figures/supplementary/mechvent_care_demographics_heatmap.png)
+![Mechanical Ventilation — Care Phenotype × Demographics](figures/supplementary/mechvent_care_phenotype_demographics.png)
+
+### Supplementary: Single-Subgroup Analyses (per dataset)
+
+<details>
+<summary>Click to expand</summary>
+
+#### MIMIC
+![MIMIC — Age](figures/supplementary/figS_age_mimic_combined.png)
+![MIMIC — Gender](figures/supplementary/figS_gender_mimic_combined.png)
+![MIMIC — Race](figures/supplementary/figS_race_mimic_combined.png)
+
+#### eICU
+![eICU — Age](figures/supplementary/figS_age_eicu_combined.png)
+![eICU — Gender](figures/supplementary/figS_gender_eicu_combined.png)
+![eICU — Race](figures/supplementary/figS_race_eicu_combined.png)
+
+#### Saltz
+![Saltz — Age](figures/supplementary/figS_age_saltz.png)
+![Saltz — Gender](figures/supplementary/figS_gender_saltz.png)
+
+#### Zhejiang
+![Zhejiang — Age](figures/supplementary/figS_age_zhejiang.png)
+![Zhejiang — Gender](figures/supplementary/figS_gender_zhejiang.png)
+
+</details>
+
 ---
 
 ## Output Files

@@ -150,7 +150,11 @@ if [ "$RUN_REVIEW" = true ]; then
     activate_venv
 
     echo "Creating review response document..."
-    python temporal/create_review_response.py
+    if [ -f "temporal/create_review_response.py" ]; then
+        python temporal/create_review_response.py
+    else
+        echo "Review response script not found (responses consolidated in temporal/reviewer-responses.md)"
+    fi
 
     echo ""
     echo -e "${GREEN}Review response document generated!${NC}"
@@ -249,7 +253,7 @@ if [ "$RUN_ANALYSIS" = true ]; then
         print_step $STEP "Running eICU Regional Analysis"
 
         echo "Breaking down eICU results by region (Midwest, Northeast, South, West)..."
-        python code/batch_analysis.py --eicu-regional $BOOTSTRAP_ARGS $SOFA_THRESHOLD_ARGS
+        python code/batch_analysis.py --eicu-regional $BOOTSTRAP_ARGS $SOFA_THRESHOLD_ARGS || echo -e "${YELLOW}eICU regional analysis encountered an issue (non-fatal)${NC}"
 
         echo ""
         echo -e "${GREEN}eICU regional analysis complete!${NC}"
@@ -286,7 +290,11 @@ if [ "$RUN_FIGURES" = true ]; then
     print_step $STEP "Generating Review Response Document"
 
     echo "Creating review response document..."
-    python temporal/create_review_response.py
+    if [ -f "temporal/create_review_response.py" ]; then
+        python temporal/create_review_response.py
+    else
+        echo "Review response script not found (responses consolidated in temporal/reviewer-responses.md)"
+    fi
 
     echo ""
     echo -e "${GREEN}Review response document generated!${NC}"

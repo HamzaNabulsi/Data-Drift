@@ -450,7 +450,7 @@ def analyze_care_demographics_correlation(df, config):
     Returns:
         pd.DataFrame: Intersectional summary rows.
     """
-    dataset_key = config['dataset_key']
+    dataset_key = config.get('dataset_key', config.get('key', 'unknown'))
     care_col = config['care_col']
     dataset_output_dir = OUTPUT_DIR / dataset_key
     dataset_output_dir.mkdir(exist_ok=True)
@@ -547,7 +547,7 @@ def generate_care_phenotype_demographic_figure(results_df, df, config):
         df: Original prepared DataFrame with individual-level data.
         config: Dict with keys 'name', 'care_col', 'dataset_key'.
     """
-    dataset_key = config['dataset_key']
+    dataset_key = config.get('dataset_key', config.get('key', 'unknown'))
     care_col = config['care_col']
 
     # ------------------------------------------------------------------
