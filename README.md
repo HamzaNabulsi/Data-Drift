@@ -3,23 +3,34 @@
 [![LICENSE](https://img.shields.io/badge/license-CC%20BY--NC--SA-blue.svg)](https://creativecommons.org/licenses/by-nc-sa/4.0/)
 [![Python](https://img.shields.io/badge/python-3.10+-blue.svg)](https://github.com/sebasmos/Data-Drift)
 
-> **Hypothesis:** Applying a single recalibration factor to ICU severity scores is clinically unsafe. Aggregate performance improvement conceals targeted degradation in minority and intersectional subgroups, meaning uniform recalibration may actively harm the patients it is intended to help.
+> **A hospital that recalibrates SOFA based on aggregate trends will actively harm some patients while helping others.** This is not a theoretical concern -- it is a measurable, statistically robust, clinically significant pattern replicated across 809,017 ICU admissions on three continents. Uniform recalibration is unsafe.
 
 ---
 
 ## Table of Contents
 
-1. [Key Findings](#key-findings)
-2. [Datasets](#datasets)
-3. [Statistical Methods](#statistical-methods)
-4. [SOFA Threshold Sensitivity](#sofa-threshold-sensitivity)
-5. [eICU Regional Analysis](#eicu-regional-analysis)
-6. [Volatility Indicators](#volatility-indicators)
-7. [Figure Organization](#figure-organization)
-8. [Output Files](#output-files)
-9. [Reproducibility](#reproducibility)
-10. [Requirements](#requirements)
-11. [Citation](#citation)
+1. [The Clinical Problem](#the-clinical-problem)
+2. [Key Findings](#key-findings)
+3. [Datasets](#datasets)
+4. [Statistical Methods](#statistical-methods)
+5. [SOFA Threshold Sensitivity](#sofa-threshold-sensitivity)
+6. [The MIMIC vs eICU Divergence](#the-mimic-vs-eicu-divergence)
+7. [Volatility Indicators](#volatility-indicators)
+8. [Figure Organization](#figure-organization)
+9. [Output Files](#output-files)
+10. [Reproducibility](#reproducibility)
+11. [Requirements](#requirements)
+12. [Citation](#citation)
+
+---
+
+## The Clinical Problem
+
+ICU severity scores drift over time as patient populations, treatment protocols, and coding practices evolve. The standard response is periodic recalibration: fit a correction factor to recent data and apply it uniformly. **This assumes drift is uniform across patient subgroups. It is not.**
+
+When a hospital observes that SOFA discrimination improved by +0.013 overall last year, the natural conclusion is that SOFA is working better. But that aggregate number conceals a 0.482 AUROC spread between the best-performing and worst-performing intersectional groups. Young Black male patients are degrading by -0.157 while elderly Asian female patients improve by +0.325. A uniform recalibration applied to this population would push predictions in the wrong direction for the most vulnerable subgroup.
+
+**The policy implication is concrete:** any recalibration strategy that does not account for subgroup-specific drift trajectories risks systematically worsening care for minority and intersectional populations.
 
 ---
 
@@ -27,17 +38,13 @@
 
 Across 809,017 ICU admissions from 4 datasets spanning the US, Europe, and Asia (2001--2022):
 
-1. **Overall improvement masks clinically significant minority degradation.** In eICU, overall SOFA discrimination improves (+0.013, p < 0.001), yet 18--44 Male Black patients degrade by -0.157 (p < 0.001) -- a 0.482 AUROC spread between best and worst intersectional groups. A hospital recalibrating on the aggregate trend would worsen predictions for this subgroup.
+1. **Uniform recalibration is unsafe.** Overall SOFA improvement (+0.013 in eICU) masks clinically significant degradation in specific subgroups. 18--44 Male Black patients degrade by -0.157 (p < 0.001) -- a 0.482 AUROC spread between best and worst intersectional groups. A hospital applying the aggregate correction would actively worsen predictions for this population.
 
-2. **Between-group drift differences exceed minimum clinically significant thresholds.** Hispanic SOFA drift is significantly worse than White drift (delta = -0.051, FDR p < 0.001), exceeding the 0.05 AUROC minimum effect size. 85--91% of between-group comparisons are statistically and clinically significant across all datasets.
+2. **Between-group differences are not just detectable -- they are clinically meaningful.** Hispanic SOFA drift is significantly worse than White drift (delta = -0.051, pooled FDR p < 0.001), exceeding the 0.05 AUROC minimum clinically significant effect size. 85--91% of between-group comparisons pass both the statistical and clinical significance thresholds.
 
-3. **Age groups drift in opposite directions** -- young patients degrade while elderly patients improve, a pattern replicated in US, European, and Asian healthcare systems.
+3. **Age groups drift in opposite directions** -- young patients degrade while elderly patients improve. This pattern replicates across US, European, and Asian healthcare systems, ruling out institution-specific explanations.
 
-4. **The same subgroup can improve in one system and decline in another.** No single recalibration factor generalizes across institutions or geographies.
-
-### Summary Figure
-
-![Summary Figure](figures/fig5_money_figure.png)
+4. **The same subgroup can improve in one system and decline in another.** MIMIC Black patients improve over time while eICU Black patients degrade -- a divergence driven by heterogeneous practice patterns across hundreds of US hospitals versus a single academic center. No single recalibration factor generalizes.
 
 ---
 
@@ -75,9 +82,11 @@ Multiple SOFA binarization thresholds (2, 6, 8, 10) are tested to confirm that d
 
 ---
 
-## eICU Regional Analysis
+## The MIMIC vs eICU Divergence
 
-MIMIC Black patients improve over time while eICU Black patients degrade -- a divergence that demands explanation. Because MIMIC represents a single Boston hospital while eICU spans heterogeneous US practice patterns, the eICU regional breakdown (Midwest, Northeast, South, West) and teaching-status stratification test whether regional variation accounts for this discrepancy. Results are saved to `regional_breakdown.csv`.
+MIMIC Black patients improve over time while eICU Black patients degrade. This is not contradictory -- it is the core evidence that uniform recalibration is dangerous. MIMIC represents a single academic center (Beth Israel Deaconess, Boston) where institutional quality improvement may lift all subgroups. eICU aggregates hundreds of hospitals across the US with vastly different practice patterns, resources, and patient populations.
+
+The eICU regional breakdown (Midwest, Northeast, South, West) and teaching-status stratification (teaching vs non-teaching) test whether this degradation is concentrated in specific regions or hospital types, or reflects a systemic pattern. If a hospital in the South shows different Black patient drift than one in the Northeast, a uniform national recalibration is doubly unsafe. Results are saved per-dataset to `regional_breakdown.csv`.
 
 ---
 
@@ -95,57 +104,63 @@ Results are saved to `volatility_indicators.csv`.
 
 ## Figure Organization
 
+Each dataset is analyzed and presented independently — no cross-dataset figures that mix populations with different available demographics.
+
 ### Main Figures (6 maximum)
 
 | Figure | Content |
 |--------|---------|
-| **1** | Study flow diagram and cohort characteristics across all 4 datasets |
-| **2--3** | Cross-dataset SOFA drift trajectories and fairness metrics, with forest plots for between-group comparisons and intersectional breakdowns |
-| **4--5** | Nursing care phenotypes (mouthcare and mechanical ventilation turning frequency) as proxies for unmeasured intersectional factors, with demographic cross-tabulation by care quartile |
-| **6** | Multi-panel summary: age-group divergence, race disparities, comprehensive heatmap |
+| **1** | Study flow diagram and cohort characteristics |
+| **2** | MIMIC Combined: intersectional drift, fairness, calibration |
+| **3** | eICU Combined: intersectional drift, fairness, calibration |
+| **4** | Saltz (Europe) + Zhejiang (Asia): gender-age intersectional drift |
+| **5** | Nursing care phenotypes with demographic cross-tabulation (MIMIC only) |
+| **6** | Summary: per-dataset non-uniform drift evidence |
 
-#### MIMIC Combined (2001--2022)
+### MIMIC Combined (2001--2022)
 
 ![MIMIC Combined — Subgroup Drift](figures/fig1_mimic_combined.png)
 ![MIMIC Combined — Intersectional](figures/fig1b_mimic_combined_intersectional.png)
+![MIMIC Calibration](figures/fig7_mimic_combined_calibration.png)
+![MIMIC Fairness](figures/fig8_mimic_combined_fairness.png)
+![MIMIC VA CAN Drift](figures/fig6b_mimic_combined_va_can_drift.png)
 
-#### eICU Combined (2014--2021)
+### eICU Combined (2014--2021)
 
 ![eICU Combined — Subgroup Drift](figures/fig2_eicu_combined.png)
 ![eICU Combined — Intersectional](figures/fig2b_eicu_combined_intersectional.png)
+![eICU Calibration](figures/fig7_eicu_combined_calibration.png)
+![eICU Fairness](figures/fig8_eicu_combined_fairness.png)
+![eICU VA CAN Drift](figures/fig6b_eicu_combined_va_can_drift.png)
 
-#### Saltz ICU (2013--2021, Europe)
+### Saltz ICU (2013--2021, Europe)
 
 ![Saltz — Subgroup Drift](figures/fig3_saltz.png)
+![Saltz Calibration](figures/fig7_saltz_calibration.png)
+![Saltz Fairness](figures/fig8_saltz_fairness.png)
+![Saltz VA CAN Drift](figures/fig6b_saltz_va_can_drift.png)
 
-#### Zhejiang ICU (2011--2022, China)
+### Zhejiang ICU (2011--2022, China)
 
 ![Zhejiang — Subgroup Drift](figures/fig4_zhejiang.png)
+![Zhejiang Calibration](figures/fig7_zhejiang_calibration.png)
+![Zhejiang Fairness](figures/fig8_zhejiang_fairness.png)
+![Zhejiang VA CAN Drift](figures/fig6b_zhejiang_va_can_drift.png)
 
-#### Calibration & Fairness
+### Summary
 
-| MIMIC | eICU |
-|-------|------|
-| ![MIMIC Calibration](figures/fig7_mimic_combined_calibration.png) | ![eICU Calibration](figures/fig7_eicu_combined_calibration.png) |
-| ![MIMIC Fairness](figures/fig8_mimic_combined_fairness.png) | ![eICU Fairness](figures/fig8_eicu_combined_fairness.png) |
-
-#### VA CAN Style Drift
-
-| MIMIC | eICU | Saltz | Zhejiang |
-|-------|------|-------|----------|
-| ![MIMIC VA CAN](figures/fig6b_mimic_combined_va_can_drift.png) | ![eICU VA CAN](figures/fig6b_eicu_combined_va_can_drift.png) | ![Saltz VA CAN](figures/fig6b_saltz_va_can_drift.png) | ![Zhejiang VA CAN](figures/fig6b_zhejiang_va_can_drift.png) |
+![Summary Figure](figures/fig5_money_figure.png)
 
 ### Supplementary Figures
 
 <details>
 <summary>Click to expand supplementary figures</summary>
 
-#### Cross-Dataset Comparisons
+#### Single-Subgroup Analyses (per dataset)
 
-![Overall Drift Comparison](figures/supplementary/figS3_overall_drift_comparison.png)
 ![Age Comparison](figures/supplementary/figS4_age_comparison.png)
-![Race Comparison](figures/supplementary/figS5_race_comparison.png)
 ![Gender Comparison](figures/supplementary/figS7_gender_comparison.png)
+![Race Comparison](figures/supplementary/figS5_race_comparison.png)
 
 #### Statistical Results
 
