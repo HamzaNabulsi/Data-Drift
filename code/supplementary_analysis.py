@@ -531,32 +531,37 @@ def analyze_care_demographics_correlation(df, config):
 
 
 def generate_care_phenotype_demographic_figure(results_df, df, config):
-    """Generate care phenotype figures focused on race-age-gender interactions (X13).
+    """Generate care phenotype figures focused on race x quartile drift (L6).
 
-    Instead of showing care quartile drift alone, this produces:
-    - Panel A: Care quartile AUC drift within racial subgroups
-    - Panel B: Combined scatter of care frequency vs AUC drift colored by race,
-      shaped by gender
+    Answers Leo's L6 question: does SOFA drift differ by race WITHIN each care
+    quartile, and does demographic composition explain quartile-level drift?
 
-    NOTE: Care phenotype analysis is only available in MIMIC cohorts and is not
-    suitable as a main analysis per Xiaoli's feedback.
+    Produces:
+    - Panel A: Grouped bar chart — AUROC delta by care quartile, bars per race,
+               red 'All' line overlay (Xiaoli format). Saved as main figure.
+    - Panel B: Heatmap — demographic composition (% by race) per care quartile.
+
+    Outputs:
+    - figures/supplementary/{key}_care_phenotype_demographics.png
+    - output/{key}/care_quartile_race_drift_raw.csv   (race x quartile x time)
+    - output/{key}/care_quartile_race_drift_deltas.csv (delta per race x quartile)
 
     Args:
-        results_df: DataFrame from analyze_sofa_drift (long format with AUC per
-            subgroup and time period).
+        results_df: DataFrame from analyze_sofa_drift.
         df: Original prepared DataFrame with individual-level data.
-        config: Dict with keys 'name', 'care_col', 'dataset_key'.
+        config: Dict with keys 'name', 'care_col', 'key'.
     """
     dataset_key = config.get('dataset_key', config.get('key', 'unknown'))
-    care_col = config['care_col']
+    out_dir = OUTPUT_DIR / dataset_key
+    out_dir.mkdir(exist_ok=True)
 
-    # ------------------------------------------------------------------
-    # Compute AUC by care quartile WITHIN each race
-    # ------------------------------------------------------------------
     races = ['White', 'Black', 'Hispanic', 'Asian']
     quartiles = ['Q1 (High)', 'Q2', 'Q3', 'Q4 (Low)']
     time_periods = sorted(df['admission_year'].unique())
 
+    # ------------------------------------------------------------------
+    # Step 1: Compute AUC by (race x quartile x time) — the missing link
+    # ------------------------------------------------------------------
     within_rows = []
     for race in races:
         for q in quartiles:
@@ -565,88 +570,158 @@ def generate_care_phenotype_demographic_figure(results_df, df, config):
                             (df['care_quartile'] == q) &
                             (df['admission_year'] == period)]
                 if len(subset) >= 30:
-                    auc_val = compute_auc(subset['outcome_binary'].values, subset['sofa'].values)
+                    auc_val = compute_auc(subset['outcome_binary'].values,
+                                         subset['sofa'].values)
                     within_rows.append({
                         'race': race,
                         'care_quartile': q,
                         'time_period': period,
                         'auc': auc_val,
                         'n': len(subset),
+                        'phenotype': dataset_key,
                     })
     within_df = pd.DataFrame(within_rows)
 
+    # Save raw temporal table
+    raw_path = out_dir / 'care_quartile_race_drift_raw.csv'
+    within_df.to_csv(raw_path, index=False)
+    print(f"Saved: {raw_path.relative_to(BASE_DIR)}")
+
     # ------------------------------------------------------------------
-    # Panel A: line plot — AUC over time for each care quartile, faceted by race
+    # Step 2: Compute first-to-last delta per (race x quartile)
+    # ------------------------------------------------------------------
+    if len(time_periods) >= 2:
+        first_period, last_period = time_periods[0], time_periods[-1]
+        delta_rows = []
+        for (race, q), grp in within_df.groupby(['race', 'care_quartile']):
+            r_first = grp[grp['time_period'] == first_period]
+            r_last = grp[grp['time_period'] == last_period]
+            if r_first.empty or r_last.empty:
+                continue
+            auc_first = r_first['auc'].values[0]
+            auc_last = r_last['auc'].values[0]
+            delta_rows.append({
+                'race': race,
+                'care_quartile': q,
+                'auc_first': auc_first,
+                'auc_last': auc_last,
+                'delta': auc_last - auc_first,
+                'n_first': r_first['n'].values[0],
+                'n_last': r_last['n'].values[0],
+                'phenotype': dataset_key,
+            })
+        delta_df = pd.DataFrame(delta_rows)
+        delta_path = out_dir / 'care_quartile_race_drift_deltas.csv'
+        delta_df.to_csv(delta_path, index=False)
+        print(f"Saved: {delta_path.relative_to(BASE_DIR)}")
+    else:
+        delta_df = pd.DataFrame()
+
+    # ------------------------------------------------------------------
+    # Step 3: Compute overall (all-race) delta per quartile for 'All' overlay
+    # ------------------------------------------------------------------
+    overall_rows = []
+    for q in quartiles:
+        for period in time_periods:
+            subset = df[(df['care_quartile'] == q) & (df['admission_year'] == period)]
+            if len(subset) >= 30:
+                overall_rows.append({
+                    'care_quartile': q,
+                    'time_period': period,
+                    'auc': compute_auc(subset['outcome_binary'].values,
+                                      subset['sofa'].values),
+                    'n': len(subset),
+                })
+    overall_df = pd.DataFrame(overall_rows)
+    all_deltas = {}
+    if len(time_periods) >= 2:
+        for q in quartiles:
+            grp = overall_df[overall_df['care_quartile'] == q]
+            r_first = grp[grp['time_period'] == time_periods[0]]
+            r_last = grp[grp['time_period'] == time_periods[-1]]
+            if not r_first.empty and not r_last.empty:
+                all_deltas[q] = r_last['auc'].values[0] - r_first['auc'].values[0]
+
+    # ------------------------------------------------------------------
+    # Step 4: Compute demographic composition per quartile (for Panel B)
+    # ------------------------------------------------------------------
+    comp_rows = []
+    for q in quartiles:
+        qtl_df = df[df['care_quartile'] == q]
+        total = len(qtl_df)
+        for race in races:
+            n_race = (qtl_df['race_std'] == race).sum()
+            comp_rows.append({
+                'care_quartile': q,
+                'race': race,
+                'pct': 100 * n_race / total if total > 0 else 0,
+            })
+    comp_df = pd.DataFrame(comp_rows)
+
+    # ------------------------------------------------------------------
+    # Step 5: Figure — Panel A: grouped bar chart (Xiaoli format)
+    #                  Panel B: composition heatmap
     # ------------------------------------------------------------------
     fig, axes = plt.subplots(1, 2, figsize=(16, 6))
 
+    # --- Panel A: AUROC delta by (quartile x race), 'All' overlay ---
     ax_a = axes[0]
-    for race in races:
-        for q in quartiles:
-            sub = within_df[(within_df['race'] == race) & (within_df['care_quartile'] == q)]
-            if sub.empty:
-                continue
-            sub = sub.sort_values('time_period')
-            color = SUBGROUP_COLORS.get(q, '#666')
-            linestyle = {'White': '-', 'Black': '--', 'Hispanic': '-.', 'Asian': ':'}.get(race, '-')
-            label = f'{race} / {q}'
-            ax_a.plot(sub['time_period'].values, sub['auc'].values,
-                      linestyle=linestyle, color=color, marker='o', markersize=4,
-                      linewidth=1.2, label=label, alpha=0.8)
+    if not delta_df.empty:
+        x = np.arange(len(quartiles))
+        n_races = len(races)
+        bar_w = 0.18
+        offsets = np.linspace(-(n_races - 1) / 2, (n_races - 1) / 2, n_races) * bar_w
+        race_colors = {r: SUBGROUP_COLORS.get(r, '#888') for r in races}
 
-    ax_a.set_ylabel('SOFA AUC')
-    ax_a.set_xlabel('Time Period')
-    ax_a.set_title('A. Care Quartile Drift Within Racial Subgroups')
-    ax_a.set_ylim(0.45, 1.0)
-    # Compact legend outside the axes
-    ax_a.legend(fontsize=5, ncol=2, loc='lower left', framealpha=0.7)
-
-    # ------------------------------------------------------------------
-    # Panel B: scatter — mean care frequency vs AUC, colored by race, shaped by gender
-    # ------------------------------------------------------------------
-    ax_b = axes[1]
-    gender_markers = {'Male': 'o', 'Female': 's'}
-    race_colors = {r: SUBGROUP_COLORS.get(r, '#666') for r in races}
-
-    scatter_rows = []
-    for race in races:
-        for gender in ['Male', 'Female']:
+        for i, race in enumerate(races):
+            vals = []
             for q in quartiles:
-                subset = df[(df['race_std'] == race) &
-                            (df['gender_std'] == gender) &
-                            (df['care_quartile'] == q)]
-                if len(subset) < 30:
-                    continue
-                auc_val = compute_auc(subset['outcome_binary'].values, subset['sofa'].values)
-                scatter_rows.append({
-                    'race': race,
-                    'gender': gender,
-                    'care_quartile': q,
-                    'mean_care_freq': subset[care_col].mean(),
-                    'auc': auc_val,
-                })
-    scatter_df = pd.DataFrame(scatter_rows)
+                row = delta_df[(delta_df['race'] == race) &
+                               (delta_df['care_quartile'] == q)]
+                vals.append(row['delta'].values[0] if not row.empty else np.nan)
+            ax_a.bar(x + offsets[i], vals, width=bar_w,
+                     color=race_colors[race], label=race, alpha=0.85, zorder=3)
 
-    if not scatter_df.empty:
-        for gender, marker in gender_markers.items():
-            for race, color in race_colors.items():
-                sub = scatter_df[(scatter_df['gender'] == gender) & (scatter_df['race'] == race)]
-                if sub.empty:
-                    continue
-                ax_b.scatter(sub['mean_care_freq'], sub['auc'],
-                             c=color, marker=marker, s=60, alpha=0.8,
-                             edgecolors='k', linewidth=0.3,
-                             label=f'{race} / {gender}')
+        # 'All' overlay line
+        if all_deltas:
+            all_vals = [all_deltas.get(q, np.nan) for q in quartiles]
+            ax_a.plot(x, all_vals, color='red', marker='D', linewidth=2,
+                      markersize=7, label='All (overall)', zorder=5)
+            ax_a.axhline(0, color='black', linewidth=0.8, linestyle='--', alpha=0.5)
 
-    ax_b.set_xlabel('Mean Care Frequency')
-    ax_b.set_ylabel('SOFA AUC')
-    ax_b.set_title('B. Care Frequency vs AUC by Race & Gender')
-    ax_b.legend(fontsize=6, ncol=2, loc='lower left', framealpha=0.7)
+        ax_a.set_xticks(x)
+        ax_a.set_xticklabels(quartiles, fontsize=10)
+        ax_a.set_ylabel('AUROC Delta (last - first period)')
+        ax_a.set_title('A. SOFA Drift by Care Quartile and Race\n'
+                       '(red = overall quartile delta)', fontsize=11)
+        ax_a.legend(fontsize=9, loc='upper left')
+        ax_a.set_ylim(-0.35, 0.35)
+
+    # --- Panel B: demographic composition heatmap ---
+    ax_b = axes[1]
+    if not comp_df.empty:
+        pivot = comp_df.pivot(index='care_quartile', columns='race', values='pct')
+        pivot = pivot.reindex(index=quartiles, columns=races)
+        im = ax_b.imshow(pivot.values, aspect='auto', cmap='YlOrRd', vmin=0, vmax=25)
+        ax_b.set_xticks(range(len(races)))
+        ax_b.set_xticklabels(races, fontsize=10)
+        ax_b.set_yticks(range(len(quartiles)))
+        ax_b.set_yticklabels(quartiles, fontsize=10)
+        for i in range(len(quartiles)):
+            for j in range(len(races)):
+                val = pivot.values[i, j]
+                if not np.isnan(val):
+                    ax_b.text(j, i, f'{val:.1f}%', ha='center', va='center',
+                              fontsize=9,
+                              color='black' if val < 15 else 'white')
+        plt.colorbar(im, ax=ax_b, label='% of quartile')
+        ax_b.set_title('B. Demographic Composition per Care Quartile\n'
+                       '(% of patients by race)', fontsize=11)
 
     fig.suptitle(
-        f'{config["name"]} — Care Phenotype × Demographics\n'
-        '(MIMIC only; not suitable as primary analysis per Xiaoli\'s feedback)',
-        fontsize=12, y=1.02,
+        f'{config["name"]} — Care Quartile Drift by Race (L6)\n'
+        'MIMIC only',
+        fontsize=12,
     )
     fig.tight_layout()
     fig_path = SUPPLEMENTARY_FIGURES_DIR / f'{dataset_key}_care_phenotype_demographics.png'
