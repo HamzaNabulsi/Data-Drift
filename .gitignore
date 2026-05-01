@@ -49,10 +49,12 @@ output/
 *.pkl
 *.pickle
 
-# Data files (large)
+# Data files (large / credentialed)
 *.csv
+*.parquet
 files/*.csv
 data/*.csv
+data/external/
 
 # Logs
 *.log
